@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "D:\Data\project\nckh\MissingPersonSearch_AI\outputs\cors_server.py", line 9, in <module>
+    with socketserver.TCPServer(("", 8600), CORSHandler) as httpd:
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment\Python_version\Lib\socketserver.py", line 457, in __init__
+    self.server_bind()
+    ~~~~~~~~~~~~~~~~^^
+  File "D:\Environment\Python_version\Lib\socketserver.py", line 478, in server_bind
+    self.socket.bind(self.server_address)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+OSError: [WinError 10048] Only one usage of each socket address (protocol/network address/port) is normally permitted

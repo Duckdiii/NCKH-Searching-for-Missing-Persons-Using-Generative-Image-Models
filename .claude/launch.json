@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "app-streamlit",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-m", "streamlit", "run", "app.py"],
+      "port": 8501
+    }
+  ]
+}

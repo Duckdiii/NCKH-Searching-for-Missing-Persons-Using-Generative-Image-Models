@@ -1,0 +1,25 @@
+
+## Specialization là gì
+
+Đây là **bước ① trong pipeline** — quá trình **fine-tune (chuyên hóa)** Stable Diffusion gốc thành 1 model biết cách "vẽ" ra khuôn mặt ở các độ tuổi khác nhau theo đúng mô tả trong prompt. Chạy **đúng 1 lần duy nhất**, offline, trước khi hệ thống đi vào vận hành thực tế — không chạy lại cho mỗi ca tìm người.
+
+## Vì sao cần bước này
+
+Stable Diffusion gốc (chưa fine-tune) hiểu tốt các mô tả tuổi kiểu chung chung ("a man in his thirties"), nhưng **không nắm bắt tốt** khi prompt có số tuổi cụ thể ("a 32-year-old man") — Specialization giúp model học lại, nhạy hơn với dạng prompt có số tuổi chính xác.
+
+## Cơ chế cụ thể — chính là Double-Prompt đã bàn rất kỹ
+
+Dùng 150 (thực tế còn 140 sau khi lọc/sample) ảnh từ FFHQ-Aging, mỗi ảnh gán **2 prompt cùng lúc** mỗi bước train:
+- $`\mathcal{P}_\alpha`$ = "photo of a [tuổi] year old [woman/man]" — dạy model "tuổi này trông ra sao"
+- $`\mathcal{P}`$ = "photo of a [woman/man]" — giữ neo các đặc điểm không liên quan tuổi
+
+Mục đích: tránh model học lệch (nhớ lại ví dụ Shortcut Learning — model có thể nhầm giới tính/bối cảnh là "thuộc về" tuổi nếu chỉ train bằng 1 prompt).
+
+## Vị trí trong toàn bộ pipeline
+
+```
+① Specialization (1 lần, offline)  →  ② Inversion (mỗi ảnh)  →  ③ Editing (mỗi ảnh)  →  InsightFace  →  FAISS
+     ↑ bạn đang ở đây, đây chính là Module 1 vừa giao cho Claude Code
+```
+
+Output của bước này: **1 checkpoint model đã chuyên hóa**, dùng lại cho mọi ảnh input sau này ở bước ② và ③.

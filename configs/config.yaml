@@ -1,0 +1,74 @@
+# Cấu hình pipeline FADING (happy path)
+
+paths:
+  ffhq_dir: "D:/Data/project/nckh/ffhq_aging_150_samples"
+  labels_csv: "D:/Data/project/nckh/ffhq_aging_150_samples/sampled_labels.csv"
+  specialized_unet_ckpt: "D:/Data/project/nckh/checkpoints/specialized_unet"
+  # test_gallery (KHÔNG phải data/gallery_test cũ) - đã verify qua sanity-check thực tế: có
+  # chứa đúng ảnh gốc (01366.png) + 25 ảnh nhiễu, để Top-1 search có thể đối chiếu đúng/sai.
+  gallery_test_dir: "D:/Data/project/nckh/test_gallery"
+  output_dir: "./outputs/edited_images"
+
+# Bật kiểm tra NaN tùy chọn ở Module 2/3 (xem src/utils/debug.py) - công cụ đã dùng để tìm ra
+# bug VAE decode fp16 và Adam eps underflow khi debug thực tế trên Colab T4. Mặc định tắt vì
+# 2 bug đó đã được fix trực tiếp trong code; bật lại nếu nghi ngờ NaN xuất hiện lần nữa.
+debug:
+  check_nan: false
+
+base_model:
+  # Base Stable Diffusion checkpoint (HuggingFace repo id)
+  pretrained_model_name_or_path: "runwayml/stable-diffusion-v1-5"
+
+# Module 1 - Specialization
+specialization:
+  lr: 5.0e-6
+  betas: [0.9, 0.999]
+  train_steps: 150
+  batch_size: 2
+
+# Module 2 - Null-text Inversion
+inversion:
+  num_inference_steps: 50  # NUM_DDIM_STEPS gốc (Mokady et al.) - giảm khi test cho nhanh
+  guidance_scale: 7.5
+  num_inner_steps: 10      # số vòng tối ưu null_t mỗi timestep
+  early_stop_epsilon: 1.0e-5
+
+# Module 3 - Editing
+# KHÔNG có num_inference_steps riêng ở đây - main.py LUÔN lấy inversion.num_inference_steps
+# ở trên để khởi tạo Editor, vì M_t_alpha (Module 2) được đánh chỉ mục theo đúng giá trị t của
+# 1 lịch trình timestep cụ thể - 2 module không thể tách rời tham số này (không phải "có thể
+# cấu hình độc lập nhưng ta chọn không dùng"). Nếu lệch, Editor raise ValueError ngay (xem
+# _validate_timesteps_available trong editing.py).
+editing:
+  guidance_scale: 7.5
+  attention_control_ratio: 0.8  # t_M / T - tỷ lệ bước đầu áp dụng attention injection
+
+# Module 4 - InsightFace Embedding
+embedding:
+  model_name: "buffalo_l"
+  ctx_id: -1  # -1 = CPU (mặc định, tránh tranh chấp VRAM với các module diffusion), 0 = GPU
+  det_size: [256, 256]  # KHÔNG dùng 640x640 mặc định - ảnh trong pipeline luôn là 256x256,
+                        # 640x640 gây ~65% ảnh fail detect (đã xác nhận qua thử nghiệm thực tế)
+
+# Module 5 - FAISS search
+search:
+  top_k: 5
+  # Nguong chap nhan SAU KHI ensemble qua cac target_age (khong phai ap dung rieng cho
+  # tung target_age truoc do) - 0.6 la nguong ArcFace pho bien cho "cung 1 nguoi".
+  rejection_threshold: 0.6
+
+# Age Estimator (MiVOLO) - dùng khi ảnh KHÔNG có nhãn tuổi sẵn (ảnh thật của người mất tích).
+# Cách tra sampled_labels.csv vẫn giữ trong main.py để test/so sánh với ảnh FFHQ có nhãn.
+# Checkpoint tải từ release chính thức MiVOLO (github.com/WildChlamydia/MiVOLO):
+#   - yolov8x_person_face.pt : drive id 1CGNCkZQNj5WkP3rLpENWAOgrBQkUWRdw
+#   - mivolo_imdb.pth.tar    : drive id 11i8pKctxz3wVkDBlWKvhYIh7kpVFXSZ4
+age_estimator:
+  detector_checkpoint: "D:/Data/project/nckh/checkpoints/mivolo/yolov8x_person_face.pt"
+  age_checkpoint: "D:/Data/project/nckh/checkpoints/mivolo/mivolo_imdb.pth.tar"
+  device: "cuda"  # "cpu" nếu máy không có GPU
+
+# Nguồn lấy INITIAL_AGE cho main.py: "mivolo" (mặc định, dùng được mọi ảnh) hoặc
+# "csv" (chỉ ảnh có trong labels_csv - để test/debug nhanh không cần chạy model).
+initial_age:
+  method: "csv"  # TAM THOI doi sang "csv" de tai lap dung IA=12/gender="boy" cho 01366.png
+                 # trong phep thu doi chieu voi baseline goc - doi lai "mivolo" sau khi xong.

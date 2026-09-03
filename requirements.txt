@@ -1,0 +1,24 @@
+torch
+torchvision
+diffusers
+transformers
+accelerate
+bitsandbytes  # optimizer 8-bit Adam, cần thiết để fit UNet SD1.5 fine-tune vào VRAM <=6GB
+insightface
+onnxruntime-gpu
+faiss-cpu
+numpy
+pandas
+pillow
+opencv-python
+tqdm
+pyyaml
+pytest  # dùng để chạy các file test trong tests/
+streamlit  # UI cho app.py (chọn mặt, cảnh báo chất lượng, chạy pipeline thật, hiện kết quả)
+
+# Age Estimator (MiVOLO) - không có trên PyPI, cài từ GitHub:
+#   pip install --no-deps "git+https://github.com/WildChlamydia/MiVOLO.git"
+# (đã verify với 0.6.0.dev0; --no-deps để không hạ cấp ultralytics/timm của môi trường hiện tại)
+ultralytics    # detector người+mặt của MiVOLO (YOLOv8)
+timm           # backbone MiVOLO age/gender
+lapx           # tracker phụ thuộc mềm của MiVOLO predictor

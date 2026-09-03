@@ -1,0 +1,214 @@
+D:\Environment\Python_version\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.3.0) or chardet (7.4.3)/charset_normalizer (3.4.2) doesn't match a supported version!
+  warnings.warn(
+D:\Environment\Python_version\Lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py:115: UserWarning: Specified provider 'CUDAExecutionProvider' is not in available provider names.Available providers: 'AzureExecutionProvider, CPUExecutionProvider'
+  warnings.warn(
+D:\Environment\Python_version\Lib\site-packages\insightface\utils\face_align.py:23: FutureWarning: `estimate` is deprecated since version 0.26 and will be removed in version 2.2. Please use `SimilarityTransform.from_estimate` class constructor instead.
+  tform.estimate(lmk, dst)
+D:\Environment\Python_version\Lib\site-packages\huggingface_hub\utils\_validators.py:205: UserWarning: The `local_dir_use_symlinks` argument is deprecated and ignored in `hf_hub_download`. Downloading to a local directory does not use symlinks anymore.
+  warnings.warn(
+[main] Dùng lại checkpoint có sẵn tại D:/Data/project/nckh/checkpoints/specialized_unet (sửa đổi lần cuối: 2026-09-02 00:29:22). Xoá thư mục này nếu muốn train lại Module 1.
+
+===== Anh: 001A05.JPG | person_id=001 | IA=5 | target_age=25 =====
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: C:\Users\Lenovo/.insightface\models\buffalo_l\1k3d68.onnx landmark_3d_68 ['None', 3, 192, 192] 0.0 1.0
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: C:\Users\Lenovo/.insightface\models\buffalo_l\2d106det.onnx landmark_2d_106 ['None', 3, 192, 192] 0.0 1.0
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: C:\Users\Lenovo/.insightface\models\buffalo_l\det_10g.onnx detection [1, 3, '?', '?'] 127.5 128.0
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: C:\Users\Lenovo/.insightface\models\buffalo_l\genderage.onnx genderage ['None', 3, 96, 96] 0.0 1.0
+Applied providers: ['CPUExecutionProvider'], with options: {'CPUExecutionProvider': {}}
+find model: C:\Users\Lenovo/.insightface\models\buffalo_l\w600k_r50.onnx recognition ['None', 3, 112, 112] 127.5 127.5
+set det-size: (256, 256)
+[embed goc] Phat hien duoc mat, da lay embedding.
+[main] Chạy Module 2 (Null-text Inversion)...
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s]Loading weights:   9%|▉         | 18/196 [00:00<00:01, 155.13it/s]Loading weights:  41%|████      | 80/196 [00:00<00:00, 383.55it/s]Loading weights:  64%|██████▍   | 126/196 [00:00<00:00, 398.47it/s]Loading weights:  93%|█████████▎| 182/196 [00:00<00:00, 453.72it/s]Loading weights: 100%|██████████| 196/196 [00:00<00:00, 419.10it/s]
+[NullTextInverter] t=981 (1/50) loss=0.000055
+[NullTextInverter] t=961 (2/50) loss=0.000171
+[NullTextInverter] t=941 (3/50) loss=0.000321
+[NullTextInverter] t=921 (4/50) loss=0.000519
+[NullTextInverter] t=901 (5/50) loss=0.000881
+[NullTextInverter] t=881 (6/50) loss=0.001541
+[NullTextInverter] t=861 (7/50) loss=0.001892
+[NullTextInverter] t=841 (8/50) loss=0.002161
+[NullTextInverter] t=821 (9/50) loss=0.002445
+[NullTextInverter] t=801 (10/50) loss=0.002857
+[NullTextInverter] t=781 (11/50) loss=0.003170
+[NullTextInverter] t=761 (12/50) loss=0.003601
+[NullTextInverter] t=741 (13/50) loss=0.003868
+[NullTextInverter] t=721 (14/50) loss=0.004108
+[NullTextInverter] t=701 (15/50) loss=0.004379
+[NullTextInverter] t=681 (16/50) loss=0.004795
+[NullTextInverter] t=661 (17/50) loss=0.005367
+[NullTextInverter] t=641 (18/50) loss=0.005840
+[NullTextInverter] t=621 (19/50) loss=0.006107
+[NullTextInverter] t=601 (20/50) loss=0.006489
+[NullTextInverter] t=581 (21/50) loss=0.006828
+[NullTextInverter] t=561 (22/50) loss=0.007214
+[NullTextInverter] t=541 (23/50) loss=0.007622
+[NullTextInverter] t=521 (24/50) loss=0.007988
+[NullTextInverter] t=501 (25/50) loss=0.008377
+[NullTextInverter] t=481 (26/50) loss=0.008789
+[NullTextInverter] t=461 (27/50) loss=0.009308
+[NullTextInverter] t=441 (28/50) loss=0.010147
+[NullTextInverter] t=421 (29/50) loss=0.011093
+[NullTextInverter] t=401 (30/50) loss=0.012550
+[NullTextInverter] t=381 (31/50) loss=0.013687
+[NullTextInverter] t=361 (32/50) loss=0.014931
+[NullTextInverter] t=341 (33/50) loss=0.015976
+[NullTextInverter] t=321 (34/50) loss=0.016922
+[NullTextInverter] t=301 (35/50) loss=0.017990
+[NullTextInverter] t=281 (36/50) loss=0.018555
+[NullTextInverter] t=261 (37/50) loss=0.018936
+[NullTextInverter] t=241 (38/50) loss=0.019440
+[NullTextInverter] t=221 (39/50) loss=0.020111
+[NullTextInverter] t=201 (40/50) loss=0.020813
+[NullTextInverter] t=181 (41/50) loss=0.021408
+[NullTextInverter] t=161 (42/50) loss=0.021912
+[NullTextInverter] t=141 (43/50) loss=0.022293
+[NullTextInverter] t=121 (44/50) loss=0.022537
+[NullTextInverter] t=101 (45/50) loss=0.022766
+[NullTextInverter] t=81 (46/50) loss=0.023148
+[NullTextInverter] t=61 (47/50) loss=0.023712
+[NullTextInverter] t=41 (48/50) loss=0.025009
+[NullTextInverter] t=21 (49/50) loss=0.028168
+[NullTextInverter] t=1 (50/50) loss=0.028137
+[main] Chạy Module 3 (Editing)...
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s]Loading weights:  29%|██▊       | 56/196 [00:00<00:00, 559.75it/s]Loading weights:  57%|█████▋    | 112/196 [00:00<00:00, 456.91it/s]Loading weights:  87%|████████▋ | 170/196 [00:00<00:00, 501.73it/s]Loading weights: 100%|██████████| 196/196 [00:00<00:00, 529.93it/s]
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[Editor] target_age=25 -> ./outputs/edited_images\age_25.png
+[Module 3] Anh sinh ra: ./outputs/edited_images\age_25.png
+[ID Score] cosine(anh_goc, anh_sinh_ra) = 0.0170 (1.70%)
+
+===== Anh: 002A12.JPG | person_id=002 | IA=12 | target_age=32 =====
+[embed goc] Phat hien duoc mat, da lay embedding.
+[main] Chạy Module 2 (Null-text Inversion)...
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s]Loading weights:  45%|████▍     | 88/196 [00:00<00:00, 872.63it/s]Loading weights:  90%|████████▉ | 176/196 [00:00<00:00, 699.06it/s]Loading weights: 100%|██████████| 196/196 [00:00<00:00, 764.61it/s]
+[NullTextInverter] t=981 (1/50) loss=0.000204
+[NullTextInverter] t=961 (2/50) loss=0.000228
+[NullTextInverter] t=941 (3/50) loss=0.000402
+[NullTextInverter] t=921 (4/50) loss=0.000729
+[NullTextInverter] t=901 (5/50) loss=0.000916
+[NullTextInverter] t=881 (6/50) loss=0.001330
+[NullTextInverter] t=861 (7/50) loss=0.001900
+[NullTextInverter] t=841 (8/50) loss=0.002333
+[NullTextInverter] t=821 (9/50) loss=0.002653
+[NullTextInverter] t=801 (10/50) loss=0.002754
+[NullTextInverter] t=781 (11/50) loss=0.002792
+[NullTextInverter] t=761 (12/50) loss=0.002966
+[NullTextInverter] t=741 (13/50) loss=0.003077
+[NullTextInverter] t=721 (14/50) loss=0.003206
+[NullTextInverter] t=701 (15/50) loss=0.003370
+[NullTextInverter] t=681 (16/50) loss=0.003658
+[NullTextInverter] t=661 (17/50) loss=0.003893
+[NullTextInverter] t=641 (18/50) loss=0.004135
+[NullTextInverter] t=621 (19/50) loss=0.004326
+[NullTextInverter] t=601 (20/50) loss=0.004578
+[NullTextInverter] t=581 (21/50) loss=0.004963
+[NullTextInverter] t=561 (22/50) loss=0.005344
+[NullTextInverter] t=541 (23/50) loss=0.005783
+[NullTextInverter] t=521 (24/50) loss=0.006214
+[NullTextInverter] t=501 (25/50) loss=0.006638
+[NullTextInverter] t=481 (26/50) loss=0.007053
+[NullTextInverter] t=461 (27/50) loss=0.007507
+[NullTextInverter] t=441 (28/50) loss=0.008179
+[NullTextInverter] t=421 (29/50) loss=0.008934
+[NullTextInverter] t=401 (30/50) loss=0.009613
+[NullTextInverter] t=381 (31/50) loss=0.010139
+[NullTextInverter] t=361 (32/50) loss=0.010597
+[NullTextInverter] t=341 (33/50) loss=0.010994
+[NullTextInverter] t=321 (34/50) loss=0.011314
+[NullTextInverter] t=301 (35/50) loss=0.011551
+[NullTextInverter] t=281 (36/50) loss=0.011765
+[NullTextInverter] t=261 (37/50) loss=0.011986
+[NullTextInverter] t=241 (38/50) loss=0.012199
+[NullTextInverter] t=221 (39/50) loss=0.012436
+[NullTextInverter] t=201 (40/50) loss=0.012733
+[NullTextInverter] t=181 (41/50) loss=0.013115
+[NullTextInverter] t=161 (42/50) loss=0.013535
+[NullTextInverter] t=141 (43/50) loss=0.014015
+[NullTextInverter] t=121 (44/50) loss=0.014481
+[NullTextInverter] t=101 (45/50) loss=0.014877
+[NullTextInverter] t=81 (46/50) loss=0.015213
+[NullTextInverter] t=61 (47/50) loss=0.015511
+[NullTextInverter] t=41 (48/50) loss=0.015793
+[NullTextInverter] t=21 (49/50) loss=0.016449
+[NullTextInverter] t=1 (50/50) loss=0.016342
+[main] Chạy Module 3 (Editing)...
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s]Loading weights: 100%|██████████| 196/196 [00:00<00:00, 3661.65it/s]
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[Editor] target_age=32 -> ./outputs/edited_images\age_32.png
+[Module 3] Anh sinh ra: ./outputs/edited_images\age_32.png
+[ID Score] cosine(anh_goc, anh_sinh_ra) = -0.0108 (-1.08%)
+
+===== Anh: 001A33.JPG | person_id=001 | IA=33 | target_age=53 =====
+[embed goc] Phat hien duoc mat, da lay embedding.
+[main] Chạy Module 2 (Null-text Inversion)...
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s]Loading weights:  31%|███       | 61/196 [00:00<00:00, 573.52it/s]Loading weights:  62%|██████▏   | 121/196 [00:00<00:00, 588.61it/s]Loading weights:  96%|█████████▌| 188/196 [00:00<00:00, 625.16it/s]Loading weights: 100%|██████████| 196/196 [00:00<00:00, 635.02it/s]
+[NullTextInverter] t=981 (1/50) loss=0.000026
+[NullTextInverter] t=961 (2/50) loss=0.000180
+[NullTextInverter] t=941 (3/50) loss=0.001153
+[NullTextInverter] t=921 (4/50) loss=0.002819
+[NullTextInverter] t=901 (5/50) loss=0.002865
+[NullTextInverter] t=881 (6/50) loss=0.002495
+[NullTextInverter] t=861 (7/50) loss=0.002144
+[NullTextInverter] t=841 (8/50) loss=0.001872
+[NullTextInverter] t=821 (9/50) loss=0.001904
+[NullTextInverter] t=801 (10/50) loss=0.002216
+[NullTextInverter] t=781 (11/50) loss=0.002369
+[NullTextInverter] t=761 (12/50) loss=0.002523
+[NullTextInverter] t=741 (13/50) loss=0.002604
+[NullTextInverter] t=721 (14/50) loss=0.002773
+[NullTextInverter] t=701 (15/50) loss=0.002913
+[NullTextInverter] t=681 (16/50) loss=0.003061
+[NullTextInverter] t=661 (17/50) loss=0.003263
+[NullTextInverter] t=641 (18/50) loss=0.003517
+[NullTextInverter] t=621 (19/50) loss=0.003775
+[NullTextInverter] t=601 (20/50) loss=0.003960
+[NullTextInverter] t=581 (21/50) loss=0.004234
+[NullTextInverter] t=561 (22/50) loss=0.004589
+[NullTextInverter] t=541 (23/50) loss=0.004776
+[NullTextInverter] t=521 (24/50) loss=0.004993
+[NullTextInverter] t=501 (25/50) loss=0.005363
+[NullTextInverter] t=481 (26/50) loss=0.005741
+[NullTextInverter] t=461 (27/50) loss=0.006081
+[NullTextInverter] t=441 (28/50) loss=0.006287
+[NullTextInverter] t=421 (29/50) loss=0.006496
+[NullTextInverter] t=401 (30/50) loss=0.006607
+[NullTextInverter] t=381 (31/50) loss=0.006741
+[NullTextInverter] t=361 (32/50) loss=0.006905
+[NullTextInverter] t=341 (33/50) loss=0.007008
+[NullTextInverter] t=321 (34/50) loss=0.007065
+[NullTextInverter] t=301 (35/50) loss=0.007191
+[NullTextInverter] t=281 (36/50) loss=0.007320
+[NullTextInverter] t=261 (37/50) loss=0.007442
+[NullTextInverter] t=241 (38/50) loss=0.007595
+[NullTextInverter] t=221 (39/50) loss=0.007786
+[NullTextInverter] t=201 (40/50) loss=0.008011
+[NullTextInverter] t=181 (41/50) loss=0.008293
+[NullTextInverter] t=161 (42/50) loss=0.008583
+[NullTextInverter] t=141 (43/50) loss=0.008881
+[NullTextInverter] t=121 (44/50) loss=0.009117
+[NullTextInverter] t=101 (45/50) loss=0.009331
+[NullTextInverter] t=81 (46/50) loss=0.009552
+[NullTextInverter] t=61 (47/50) loss=0.009811
+[NullTextInverter] t=41 (48/50) loss=0.010162
+[NullTextInverter] t=21 (49/50) loss=0.011086
+[NullTextInverter] t=1 (50/50) loss=0.011070
+[main] Chạy Module 3 (Editing)...
+Loading weights:   0%|          | 0/196 [00:00<?, ?it/s]Loading weights:  49%|████▉     | 96/196 [00:00<00:00, 884.02it/s]Loading weights:  94%|█████████▍| 185/196 [00:00<00:00, 802.96it/s]Loading weights: 100%|██████████| 196/196 [00:00<00:00, 846.11it/s]
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+There are modules in AutoencoderKL that should be kept in float32: []. Casting directly with `to()` can lead to inconsistent results; set `torch_dtype` in `from_pretrained()` instead to keep these modules in float32.
+[Editor] target_age=53 -> ./outputs/edited_images\age_53.png
+[Module 3] Anh sinh ra: ./outputs/edited_images\age_53.png
+[ID Score] cosine(anh_goc, anh_sinh_ra) = -0.0310 (-3.10%)
+
+===== TOM TAT KET QUA THAT (FG-NET, KHONG ALIGN, qua main.py hien tai) =====
+001A05.JPG (IA=5 -> target=25): goc_detect=True, sinh_ra_detect=True, ID_Score=0.016985051333904266
+    Anh sinh ra luu tai: ./outputs/edited_images\age_25.png
+002A12.JPG (IA=12 -> target=32): goc_detect=True, sinh_ra_detect=True, ID_Score=-0.010776814073324203
+    Anh sinh ra luu tai: ./outputs/edited_images\age_32.png
+001A33.JPG (IA=33 -> target=53): goc_detect=True, sinh_ra_detect=True, ID_Score=-0.030999114736914635
+    Anh sinh ra luu tai: ./outputs/edited_images\age_53.png
