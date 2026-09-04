@@ -1,12 +1,17 @@
 # Cấu hình pipeline FADING (happy path)
+#
+# CÁC ĐƯỜNG DẪN DƯỚI ĐÂY LÀ TƯƠNG ĐỐI so với thư mục gốc project (nơi chạy `python main.py`) -
+# đặt dữ liệu/checkpoint của bạn đúng các thư mục này, hoặc sửa lại đường dẫn cho khớp máy
+# bạn. Dữ liệu (FFHQ-Aging, FG-NET, test_gallery) và checkpoint model KHÔNG kèm trong repo
+# (dung lượng lớn) - xem hướng dẫn tải/chuẩn bị trong README.md.
 
 paths:
-  ffhq_dir: "D:/Data/project/nckh/ffhq_aging_150_samples"
-  labels_csv: "D:/Data/project/nckh/ffhq_aging_150_samples/sampled_labels.csv"
-  specialized_unet_ckpt: "D:/Data/project/nckh/checkpoints/specialized_unet"
-  # test_gallery (KHÔNG phải data/gallery_test cũ) - đã verify qua sanity-check thực tế: có
-  # chứa đúng ảnh gốc (01366.png) + 25 ảnh nhiễu, để Top-1 search có thể đối chiếu đúng/sai.
-  gallery_test_dir: "D:/Data/project/nckh/test_gallery"
+  ffhq_dir: "./data/ffhq_aging_150_samples"
+  labels_csv: "./data/ffhq_aging_150_samples/sampled_labels.csv"
+  specialized_unet_ckpt: "./checkpoints/specialized_unet"
+  # gallery test dung de sanity-check Top-1 search - can chua dung anh goc dung lam input
+  # test (vd 01366.png) + vai chuc anh nhieu khac de FAISS co gi ma tim/loai tru.
+  gallery_test_dir: "./data/test_gallery"
   output_dir: "./outputs/edited_images"
 
 # Bật kiểm tra NaN tùy chọn ở Module 2/3 (xem src/utils/debug.py) - công cụ đã dùng để tìm ra
@@ -63,12 +68,11 @@ search:
 #   - yolov8x_person_face.pt : drive id 1CGNCkZQNj5WkP3rLpENWAOgrBQkUWRdw
 #   - mivolo_imdb.pth.tar    : drive id 11i8pKctxz3wVkDBlWKvhYIh7kpVFXSZ4
 age_estimator:
-  detector_checkpoint: "D:/Data/project/nckh/checkpoints/mivolo/yolov8x_person_face.pt"
-  age_checkpoint: "D:/Data/project/nckh/checkpoints/mivolo/mivolo_imdb.pth.tar"
+  detector_checkpoint: "./checkpoints/mivolo/yolov8x_person_face.pt"
+  age_checkpoint: "./checkpoints/mivolo/mivolo_imdb.pth.tar"
   device: "cuda"  # "cpu" nếu máy không có GPU
 
 # Nguồn lấy INITIAL_AGE cho main.py: "mivolo" (mặc định, dùng được mọi ảnh) hoặc
 # "csv" (chỉ ảnh có trong labels_csv - để test/debug nhanh không cần chạy model).
 initial_age:
-  method: "csv"  # TAM THOI doi sang "csv" de tai lap dung IA=12/gender="boy" cho 01366.png
-                 # trong phep thu doi chieu voi baseline goc - doi lai "mivolo" sau khi xong.
+  method: "mivolo"

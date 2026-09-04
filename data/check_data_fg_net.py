@@ -1,5 +1,6 @@
 import os
 
+# SUA LAI BASE CHO DUNG MAY BAN truoc khi chay - day la duong dan may tac gia goc.
 BASE = r"D:\Data\project\nckh"
 DATA_DIR = os.path.join(BASE, "data")   # THEM: cap thu muc "data" con thieu
 

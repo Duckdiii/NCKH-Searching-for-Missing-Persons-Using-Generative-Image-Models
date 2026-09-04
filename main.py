@@ -1,15 +1,19 @@
 """
 Pipeline chính: Missing Person Search via FADING (happy path)
 
-Gọi tuần tự 5 module:
+Gọi tuần tự 6 bước:
+  1.5. Align (FFHQ-exact) -> căn chỉnh ảnh input về đúng bố cục 140 ảnh FFHQ đã train Module 1
+       - BẮT BUỘC cho mọi ảnh (kể cả ảnh FFHQ đã align sẵn vẫn đi qua, gần như bất biến qua
+       align lần 2). Thiếu bước này, ảnh "trong tự nhiên" (chưa align, vd FG-NET) làm Module 2/3
+       sinh sai hoàn toàn cấu trúc khuôn mặt (đã kiểm chứng thực nghiệm).
   1. Specialization  -> checkpoint UNet (tự bỏ qua nếu checkpoint đã có sẵn)
   2. Null-text Inversion -> (z_T, {null_t}, M_t_alpha) từ 1 ảnh input test + Initial Age
   3. Editing -> ảnh PNG cho từng target_age
   4. InsightFace Embedding -> gallery embedding + embedding từng ảnh vừa sinh
   5. FAISS Search -> top-K identity cho từng target_age (search riêng, không ensemble)
 
-Đã verify end-to-end trên Colab T4 GPU: ảnh sinh ra ở cả 3 target_age [30, 50, 70] đều tìm
-đúng Top-1 = "01366" (chính ảnh gốc) trong gallery test.
+Đã verify end-to-end: ảnh sinh ra ở cả 3 target_age [30, 50, 70] đều tìm đúng Top-1 = "01366"
+(chính ảnh gốc) trong gallery test.
 """
 
 import datetime

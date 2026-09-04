@@ -2,11 +2,12 @@ import os
 import shutil
 import random
 
-# Đã sửa: thêm \ffhq256 vào cuối đường dẫn ảnh gốc
-FFHQ_ALL_IMAGES = r"D:\Data\project\nckh\ffhq256_images\ffhq256"     # <-- ĐÃ SỬA
-SAMPLED_140_DIR = r"D:\Data\project\nckh\ffhq_aging_150_samples"
+# SỬA LẠI CÁC ĐƯỜNG DẪN DƯỚI ĐÂY CHO ĐÚNG MÁY BẠN trước khi chạy - đây là đường dẫn máy tác
+# giả gốc, không phải mặc định dùng chung cho mọi máy.
+FFHQ_ALL_IMAGES = r"D:\Data\project\nckh\ffhq256_images\ffhq256"     # thư mục chứa toàn bộ ảnh FFHQ gốc (~70000 ảnh)
+SAMPLED_140_DIR = r"D:\Data\project\nckh\ffhq_aging_150_samples"     # 140 ảnh đã sample (khớp paths.ffhq_dir trong config.yaml)
 TEST_IMAGE_PATH = r"D:\Data\project\nckh\ffhq_aging_150_samples\01366.png"  # chọn đúng ảnh bạn test
-GALLERY_DIR = r"D:\Data\project\nckh\test_gallery"
+GALLERY_DIR = r"D:\Data\project\nckh\test_gallery"                   # khớp paths.gallery_test_dir trong config.yaml
 
 os.makedirs(GALLERY_DIR, exist_ok=True)
 

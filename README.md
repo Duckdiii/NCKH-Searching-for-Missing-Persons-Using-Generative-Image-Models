@@ -11,6 +11,9 @@ rồi tìm kiếm từng phiên bản đó trong cơ sở dữ liệu ảnh đ�
 thay vì chỉ so khớp trực tiếp ảnh cũ với ảnh hiện tại (chênh lệch tuổi tác quá lớn khiến
 face recognition thông thường thất bại).
 
+> Repo này dùng nội bộ trong nhóm — khi tạo trên GitHub hãy để **Private** và thêm thành viên
+> nhóm làm collaborator, thay vì để Public (repo chưa gắn giấy phép mã nguồn mở).
+
 ## Pipeline
 
 Ảnh input → 5 module chính (+ 1 module tiền xử lý bắt buộc):
@@ -52,51 +55,82 @@ src/
   search/                # Module 4-5 + ensemble/rejection/deduplicate
   utils/                 # align, age estimator, head pose, prompt helper
 tests/                  # pytest cho từng module
-scripts/                # Script chẩn đoán/đo đạc rời (không phải pipeline chính thức)
+scripts/                # Script chẩn đoán/đo đạc rời + chuẩn bị dữ liệu (không phải pipeline
+                        # chính thức - tiền tố `_diag_*` là script debug 1 lần, có thể hardcode
+                        # đường dẫn máy tác giả, chỉ để tham khảo lại quá trình điều tra)
 notebooks/              # Bản tự chứa để chạy trên Google Colab (GPU miễn phí)
 docs/                   # Ghi chú giải thích kỹ thuật chi tiết
+data/                   # KHÔNG kèm ảnh thật trong repo - chỉ có script chuẩn bị dữ liệu
+checkpoints/            # KHÔNG kèm checkpoint trong repo - tự tải/train, xem hướng dẫn dưới
+outputs/                # Sinh ra khi chạy pipeline (ảnh kết quả, log) - không commit
 ```
 
-## Cài đặt
+## Bắt đầu (dành cho thành viên nhóm)
+
+### 1. Clone và cài môi trường
 
 ```bash
+git clone <URL repo>
+cd MissingPersonSearch_AI
+
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Linux/macOS
+
 pip install -r requirements.txt
 
 # MiVOLO không có trên PyPI, cài riêng (--no-deps để không hạ cấp ultralytics/timm):
 pip install --no-deps "git+https://github.com/WildChlamydia/MiVOLO.git"
 ```
 
-Yêu cầu GPU CUDA (đã verify chạy được trên RTX 3050 6GB VRAM nhờ fp16 + 8-bit Adam
-`bitsandbytes`); có thể chạy trên CPU nhưng rất chậm.
+Yêu cầu **Python 3.10+**, **GPU CUDA** (đã verify chạy được trên RTX 3050 6GB VRAM nhờ fp16 +
+8-bit Adam `bitsandbytes`); có thể chạy trên CPU nhưng rất chậm, không khuyến khích cho Module
+1-3 (diffusion).
 
-### Dữ liệu & checkpoint (KHÔNG kèm trong repo — tự chuẩn bị)
+### 2. Chuẩn bị dữ liệu & checkpoint (KHÔNG kèm trong repo — dung lượng lớn, tự tải)
 
-Sửa lại đường dẫn trong `configs/config.yaml` cho đúng máy của bạn:
+`configs/config.yaml` mặc định trỏ vào các thư mục tương đối bên dưới — đặt đúng dữ liệu vào
+đây thì chạy được ngay, không cần sửa file config:
 
-- **Base model**: `runwayml/stable-diffusion-v1-5` (tự tải qua HuggingFace Hub khi chạy lần đầu).
-- **FFHQ-Aging**: tập ảnh mẫu có nhãn tuổi/giới tính (`sampled_labels.csv`) dùng để train
-  Module 1 và làm gallery test.
-- **FG-NET**: dataset ảnh thật (chưa align) dùng đánh giá độ chính xác trên "ảnh trong tự
-  nhiên" — tên file dạng `<person_id 3 số>A<tuổi 2 số>.JPG` (vd `001A05.JPG`).
-- **MiVOLO checkpoints**: `yolov8x_person_face.pt` + `mivolo_imdb.pth.tar` (tải từ release
-  chính thức của MiVOLO, đường dẫn Google Drive ghi chú trong `config.yaml`).
+| Đường dẫn mặc định | Nội dung cần có | Nguồn |
+|---|---|---|
+| `data/ffhq_aging_150_samples/` | Ảnh mẫu FFHQ đã align sẵn + `sampled_labels.csv` (nhãn tuổi/giới tính) | Tập dữ liệu nội bộ nhóm — xin từ thành viên đã có |
+| `data/test_gallery/` | ~26 ảnh (gồm 1 ảnh test + ảnh nhiễu) để sanity-check Top-1 search | Tự tạo bằng `data/check_data.py` (cần sửa lại đường dẫn nguồn trong script) hoặc xin từ nhóm |
+| `checkpoints/specialized_unet/` | Checkpoint UNet đã fine-tune (Module 1) | Tự train qua `main.py` (150 step, mất vài phút trên GPU) — thư mục sẽ tự sinh nếu để trống |
+| `checkpoints/mivolo/yolov8x_person_face.pt` | Detector người+mặt của MiVOLO | [Release chính thức MiVOLO](https://github.com/WildChlamydia/MiVOLO) — link Google Drive ghi trong `config.yaml` |
+| `checkpoints/mivolo/mivolo_imdb.pth.tar` | Model age/gender của MiVOLO | Như trên |
+| — | Base model `runwayml/stable-diffusion-v1-5` | Tự tải qua HuggingFace Hub khi chạy lần đầu (cần đăng nhập `huggingface-cli login` nếu bị chặn) |
+| `data/FGNET.../` (tuỳ chọn) | Dataset FG-NET (ảnh thật, chưa align) — dùng đánh giá định lượng, không bắt buộc để chạy demo | [FG-NET](http://yanweifu.github.io/FG_NET_data/) — tên file dạng `<person_id 3 số>A<tuổi 2 số>.JPG`, vd `001A05.JPG` |
 
-## Chạy
+Nếu dữ liệu của bạn nằm ở chỗ khác, sửa trực tiếp các đường dẫn trong `configs/config.yaml`
+(mục `paths` và `age_estimator`).
+
+### 3. Chạy thử
 
 ```bash
-python main.py              # Pipeline CLI - dùng 1 ảnh test cấu hình sẵn trong main.py
+python main.py              # Pipeline CLI - dùng 1 ảnh test cấu hình sẵn (TEST_IMAGE_NAME trong main.py)
 streamlit run app.py        # Giao diện web - upload ảnh, chọn mặt, xem kết quả trực quan
-pytest tests/ -v             # Chạy toàn bộ test
+pytest tests/ -v             # Chạy toàn bộ test (một số test tự skip nếu thiếu checkpoint MiVOLO)
 ```
+
+Lần chạy đầu `python main.py` sẽ tự train Module 1 (Specialization, ~150 step) nếu
+`checkpoints/specialized_unet/` chưa có gì — các lần sau tự động dùng lại checkpoint đã có
+(xoá thư mục nếu muốn train lại).
 
 Notebook `notebooks/FADING_pipeline_colab_1.ipynb` tự chứa toàn bộ code (không phụ thuộc
 `src/`), dữ liệu lấy từ Google Drive — dùng để chạy trên Colab khi cần GPU mạnh hơn máy cá
 nhân, gồm cả vòng lặp đánh giá định lượng trên toàn bộ FG-NET (ID Score + Age MAE).
 
+> **Lưu ý đồng bộ**: notebook Colab và code trong `src/` là 2 bản sao độc lập (notebook tự
+> chứa để không phụ thuộc Drive/GitHub lúc chạy) — sửa code ở 1 bên KHÔNG tự động áp dụng cho
+> bên kia. Nếu sửa logic pipeline trong `src/`/`main.py`, nhớ đối chiếu lại notebook nếu cần
+> dùng trên Colab.
+
 ## Hiện trạng / giới hạn đã biết
 
 - **Bắt buộc phải align ảnh input** (xem Module 1.5) — thiếu bước này, ảnh sinh ra sai lệch
-  hoàn toàn về cấu trúc khuôn mặt so với người gốc.
+  hoàn toàn về cấu trúc khuôn mặt so với người gốc (đã đo thực nghiệm: ID Score gần 0 hoặc âm
+  khi bỏ qua align trên ảnh chưa align sẵn như FG-NET).
 - **Cặp ảnh "trẻ nhỏ → người lớn" (chênh tuổi vượt xa giai đoạn phát triển khuôn mặt)** vẫn cho
   kết quả nhận dạng kém dù đã align đúng — giới hạn cấu trúc đã biết trước của FADING, không
   phải lỗi của bước align.
@@ -105,3 +139,17 @@ nhân, gồm cả vòng lặp đánh giá định lượng trên toàn bộ FG-N
   tối ưu tuyệt đối — có thể cần tinh chỉnh thêm khi mở rộng dữ liệu đánh giá.
 - Các file trong `scripts/` (tiền tố `_diag_*`) là script chẩn đoán tạm thời dùng trong quá
   trình phát triển, không phải một phần của pipeline chính thức.
+
+## Sự cố thường gặp
+
+- **`UnicodeEncodeError` khi redirect output ra file trên Windows** — đã fix bằng
+  `sys.stdout.reconfigure(encoding="utf-8")` ở đầu `main.py`; nếu vẫn gặp ở script khác, thêm
+  2 dòng tương tự vào đầu script đó.
+- **`torch.load` lỗi `UnpicklingError` khi load checkpoint MiVOLO** — checkpoint gốc dùng định
+  dạng cũ, không tương thích mặc định `weights_only=True` của torch ≥ 2.6; đã xử lý sẵn trong
+  `src/utils/age_estimator.py` (chỉ tin checkpoint từ release chính thức MiVOLO).
+  - Cài chậm/lỗi ONNX Runtime GPU → kiểm tra bản CUDA cài đặt khớp với `onnxruntime-gpu`
+  yêu cầu, hoặc tạm dùng `ctx_id: -1` (CPU) trong `config.yaml` cho `embedding`/insightface.
+- **`ValueError` từ `Editor.edit()` báo lệch `num_inference_steps`** — Module 2 và Module 3
+  bắt buộc dùng chung `inversion.num_inference_steps`, không được cấu hình riêng cho Module 3
+  (xem comment trong `config.yaml`).

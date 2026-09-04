@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.pytest_cache/
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# Checkpoint / model weights (qua lon, tai rieng theo huong dan trong README)
+checkpoints/*
+!checkpoints/.gitkeep
+
+# Dataset that (FFHQ-Aging, FG-NET, gallery test) - KHONG commit anh that len GitHub,
+# chi giu lai script chuan bi du lieu (check_data*.py)
+data/gallery_test/
+data/FGNET*/
+data/ffhq*/
+data/*.zip
+
+# Output sinh ra khi chay pipeline (anh edited, log chan doan, upload tam cua app.py)
+outputs/*
+!outputs/.gitkeep
+
+# Streamlit secrets (KHONG commit token/API key neu co)
+.streamlit/secrets.toml
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
