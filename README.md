@@ -46,23 +46,22 @@ khiến Module 2/3 sinh sai hoàn toàn cấu trúc khuôn mặt (đã kiểm ch
 
 ## Cấu trúc project
 
-```
 main.py                 # Pipeline chính (CLI) - nguồn sự thật duy nhất của luồng xử lý
-app.py                  # Giao diện Streamlit - tái dùng trực tiếp các hàm trong main.py
+app.py                  # Giao diện Streamlit (Legacy entrypoint)
+backend/                # FastAPI backend bọc pipeline (Session store, GPU Mutex, WebSocket)
+desktop/                # Ứng dụng Desktop (React + Vite + TypeScript & Tauri v2 shell)
 configs/config.yaml     # Toàn bộ tham số (đường dẫn dữ liệu/checkpoint, hyperparameter...)
 src/
   fading/               # Module 1-3 (Specialization, Inversion, Editing)
-  search/                # Module 4-5 + ensemble/rejection/deduplicate
-  utils/                 # align, age estimator, head pose, prompt helper
-tests/                  # pytest cho từng module
-scripts/                # Script chẩn đoán/đo đạc rời + chuẩn bị dữ liệu (không phải pipeline
-                        # chính thức - tiền tố `_diag_*` là script debug 1 lần, có thể hardcode
-                        # đường dẫn máy tác giả, chỉ để tham khảo lại quá trình điều tra)
-notebooks/              # Bản tự chứa để chạy trên Google Colab (GPU miễn phí)
+  search/               # Module 4-5 + ensemble/rejection/deduplicate
+  utils/                # align, age estimator, head pose, prompt helper
+tests/                  # pytest cho từng module core src/
+scripts/                # Script đo đạc rời & chuẩn bị dữ liệu (validate_head_pose, prepare_test_gallery...)
+notebooks/              # Notebooks nghiên cứu (Kaggle/Colab)
 docs/                   # Ghi chú giải thích kỹ thuật chi tiết
-data/                   # KHÔNG kèm ảnh thật trong repo - chỉ có script chuẩn bị dữ liệu
-checkpoints/            # KHÔNG kèm checkpoint trong repo - tự tải/train, xem hướng dẫn dưới
-outputs/                # Sinh ra khi chạy pipeline (ảnh kết quả, log) - không commit
+data/                   # Dữ liệu ảnh và nhãn CSV (sạch sẽ, không chứa file mã nguồn .py)
+checkpoints/            # Checkpoint model weights (specialized_unet, mivolo)
+outputs/                # Thư mục sinh ra khi chạy pipeline (jobs, app_uploads)
 ```
 
 ## Bắt đầu (dành cho thành viên nhóm)
@@ -137,8 +136,7 @@ nhân, gồm cả vòng lặp đánh giá định lượng trên toàn bộ FG-N
 - Ngưỡng chấp nhận (`rejection_threshold` trong `config.yaml`) và các hằng số cảnh báo chất
   lượng ảnh đã được hiệu chỉnh dựa trên đo đạc thực nghiệm trên tập FFHQ mẫu, chưa phải con số
   tối ưu tuyệt đối — có thể cần tinh chỉnh thêm khi mở rộng dữ liệu đánh giá.
-- Các file trong `scripts/` (tiền tố `_diag_*`) là script chẩn đoán tạm thời dùng trong quá
-  trình phát triển, không phải một phần của pipeline chính thức.
+- Các file trong `scripts/` là các script công cụ hỗ trợ chuẩn bị dữ liệu gallery và kiểm thử góc quay khuôn mặt (`prepare_test_gallery.py`, `check_fgnet_data.py`, `validate_head_pose.py`).
 
 ## Sự cố thường gặp
 
