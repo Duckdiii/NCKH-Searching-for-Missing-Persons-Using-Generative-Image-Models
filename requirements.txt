@@ -22,3 +22,10 @@ streamlit  # UI cho app.py (chọn mặt, cảnh báo chất lượng, chạy pi
 ultralytics    # detector người+mặt của MiVOLO (YOLOv8)
 timm           # backbone MiVOLO age/gender
 lapx           # tracker phụ thuộc mềm của MiVOLO predictor
+
+# Desktop Backend (FastAPI API layer)
+fastapi
+uvicorn[standard]
+pydantic
+websockets
+python-multipart
