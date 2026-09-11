@@ -41,26 +41,51 @@ export const ResultsGallery: React.FC = () => {
 
   const baseUrl = `http://127.0.0.1:${backendPort}`;
 
+  const resolveUrl = (path?: string | null) => {
+    if (!path) return '';
+    if (path.startsWith('/') || path.startsWith('data:') || path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    return `${baseUrl}${path}`;
+  };
+
   // 1. Ảnh gốc lúc nhỏ
-  const originalFaceUrl = croppedPreviewUrl
-    ? `${baseUrl}${croppedPreviewUrl}`
-    : (uploadedImageUrl || '');
+  const originalFaceUrl = resolveUrl(croppedPreviewUrl) || uploadedImageUrl || '';
 
   // 2. Mốc tuổi và ảnh FADING khớp nhất
   const ages = Object.keys(edited_images).map((a) => parseInt(a)).sort((a, b) => a - b);
   const matchedAge = best_age ?? (ages.length > 0 ? ages[Math.floor(ages.length / 2)] : 50);
-  const bestEditedUrl = edited_images[matchedAge]
-    ? `${baseUrl}${edited_images[matchedAge]}`
-    : Object.values(edited_images)[0]
-    ? `${baseUrl}${Object.values(edited_images)[0]}`
-    : '';
+  const bestEditedUrl = resolveUrl(edited_images[matchedAge]) || resolveUrl(Object.values(edited_images)[0]) || '';
 
   // 3. Ảnh đối soát trong Gallery
-  const galleryMatchUrl = matched_gallery_image
-    ? `${baseUrl}${matched_gallery_image}`
-    : top_identity
-    ? `${baseUrl}/data/test_gallery/${top_identity}.png`
-    : '';
+  const galleryMatchUrl = resolveUrl(matched_gallery_image) ||
+    (top_identity ? `${baseUrl}/data/test_gallery/${top_identity}.png` : '');
+
+  // Badge ID Score theo 3 ngưỡng: trust (>=70%), warning (30-70%), error (<30%)
+  const getIdScoreBadge = (score: number) => {
+    const pct = score * 100;
+    if (pct >= 70) {
+      return {
+        label: `ID Score: ${pct.toFixed(2)}%`,
+        statusText: 'Khớp cao',
+        colorClass: 'bg-[#4A8FA0]/20 text-[#4A8FA0] border border-[#4A8FA0]/40',
+      };
+    } else if (pct >= 30) {
+      return {
+        label: `ID Score: ${pct.toFixed(2)}%`,
+        statusText: 'Cần thẩm định',
+        colorClass: 'bg-[#C9A24A]/20 text-[#C9A24A] border border-[#C9A24A]/40',
+      };
+    } else {
+      return {
+        label: `ID Score: ${pct.toFixed(2)}%`,
+        statusText: 'Không khớp',
+        colorClass: 'bg-[#B8564A]/20 text-[#B8564A] border border-[#B8564A]/40',
+      };
+    }
+  };
+
+  const idScoreBadge = getIdScoreBadge(top_score);
 
   return (
     <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-6 shadow-xl space-y-7 animate-in fade-in duration-300">
@@ -92,12 +117,19 @@ export const ResultsGallery: React.FC = () => {
           </div>
         </div>
 
-        {accepted && (
-          <div className="flex items-center gap-1.5 bg-[#4A8FA0]/20 border border-[#4A8FA0]/40 px-3.5 py-1.5 rounded-full text-xs font-semibold text-[#4A8FA0]">
-            <Award className="w-4 h-4" />
-            <span>Xác thực thành công</span>
+        <div className="flex items-center gap-2">
+          {/* Badge ID Score theo 3 ngưỡng token có sẵn */}
+          <div className={`px-3 py-1.5 rounded-full text-xs font-bold ${idScoreBadge.colorClass}`}>
+            {idScoreBadge.label} • {idScoreBadge.statusText}
           </div>
-        )}
+
+          {accepted && (
+            <div className="flex items-center gap-1.5 bg-[#4A8FA0]/20 border border-[#4A8FA0]/40 px-3.5 py-1.5 rounded-full text-xs font-semibold text-[#4A8FA0]">
+              <Award className="w-4 h-4" />
+              <span>Xác thực thành công</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 2. Hero Card: So sánh trực quan 3 ảnh theo hàng ngang */}
@@ -203,7 +235,6 @@ export const ResultsGallery: React.FC = () => {
                   alt={`Gallery ${top_identity}`}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                   onError={(e) => {
-                    // Fallback nếu ảnh định dạng khác
                     (e.target as HTMLElement).style.display = 'none';
                   }}
                 />
@@ -216,9 +247,57 @@ export const ResultsGallery: React.FC = () => {
                 <ZoomIn className="w-6 h-6" />
               </div>
             </div>
-            <p className="text-xs text-[#4A8FA0] font-semibold mt-2 text-center">
-              Cosine: {(top_score * 100).toFixed(2)}%
-            </p>
+            {/* Badge ID Score */}
+            <div className={`mt-2 px-3 py-1 rounded text-xs font-bold text-center ${idScoreBadge.colorClass}`}>
+              {idScoreBadge.label}
+            </div>
+          </div>
+        </div>
+
+        {/* 2.1 Lưới nhỏ các mốc tuổi khác bên dưới Hero Card */}
+        <div className="pt-3 border-t border-[#262E38] space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[#8E98A5] uppercase tracking-wide">
+              Dự đoán các mốc tuổi khác (Click để phóng to):
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
+            {Object.entries(edited_images).map(([ageStr, relPath]) => {
+              const ageNum = parseInt(ageStr);
+              const isBest = ageNum === matchedAge;
+              return (
+                <div
+                  key={ageStr}
+                  onClick={() =>
+                    setLightboxImg({
+                      url: resolveUrl(relPath),
+                      title: `Khuôn mặt dự đoán mốc ${ageStr} tuổi`,
+                      subtitle: isBest ? 'Mốc tuổi có độ tương đồng cao nhất' : 'Mô hình khuếch tán FADING',
+                    })
+                  }
+                  className={`relative aspect-square rounded-lg overflow-hidden bg-black/50 cursor-pointer group border transition-all ${
+                    isBest
+                      ? 'border-[#C97B4A] ring-2 ring-[#C97B4A]/30'
+                      : 'border-[#262E38] hover:border-[#C97B4A]'
+                  }`}
+                >
+                  <img
+                    src={resolveUrl(relPath)}
+                    alt={`${ageStr} tuổi`}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                  />
+                  {/* Badge tuổi + % góc dưới trái */}
+                  <div className="absolute bottom-1 left-1 bg-[#12161C]/90 border border-[#262E38] px-1.5 py-0.5 rounded text-[10px] font-bold text-[#E8E6E0] shadow">
+                    {ageStr}t • {(top_score * 100).toFixed(0)}%
+                  </div>
+
+                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                    <ZoomIn className="w-4 h-4" />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -235,7 +314,7 @@ export const ResultsGallery: React.FC = () => {
               key={age}
               onClick={() =>
                 setLightboxImg({
-                  url: `${baseUrl}${relPath}`,
+                  url: resolveUrl(relPath),
                   title: `Khuôn mặt dự đoán mốc ${age} tuổi`,
                   subtitle: 'Sinh bởi mạng khuếch tán Dual-Attention',
                 })
@@ -244,7 +323,7 @@ export const ResultsGallery: React.FC = () => {
             >
               <div className="relative aspect-square overflow-hidden bg-black/40">
                 <img
-                  src={`${baseUrl}${relPath}`}
+                  src={resolveUrl(relPath)}
                   alt={`${age} tuổi`}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                 />

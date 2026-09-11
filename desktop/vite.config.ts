@@ -8,5 +8,10 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+  },
+  // @ts-ignore
+  test: {
+    environment: 'jsdom',
+    globals: true,
   }
 })

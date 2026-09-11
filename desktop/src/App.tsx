@@ -10,8 +10,16 @@ export const App: React.FC = () => {
   const { checkHealth } = useSearchApi();
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('preview')) {
+      useSearchStore.setState({
+        checkpointReady: true,
+        isCheckingHealth: false,
+      });
+      return;
+    }
     checkHealth();
-  }, [checkHealth]);
+  }, []);
 
   if (isCheckingHealth) {
     return (

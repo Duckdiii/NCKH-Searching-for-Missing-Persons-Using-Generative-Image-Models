@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchStore } from '../store/useSearchStore';
 import { useSearchApi } from '../api/useSearchApi';
+import { WizardStepper, WizardStep } from '../components/WizardStepper';
 import { FaceSelector } from '../components/FaceSelector';
 import { QualityWarnings } from '../components/QualityWarnings';
+import { PhotoRestoration } from '../components/PhotoRestoration';
 import { AgeInputForm } from '../components/AgeInputForm';
 import { GalleryPicker } from '../components/GalleryPicker';
-import { ProgressStages } from '../components/ProgressStages';
+import { JobProgressBlock } from '../components/JobProgressBlock';
 import { ResultsGallery } from '../components/ResultsGallery';
 import {
   UploadCloud,
@@ -13,11 +15,8 @@ import {
   RotateCcw,
   ShieldCheck,
   Loader2,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  UserCheck,
-  Settings2,
+  ArrowLeft,
+  RefreshCw,
 } from 'lucide-react';
 
 export const SearchPage: React.FC = () => {
@@ -26,26 +25,89 @@ export const SearchPage: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Trạng thái đóng/mở Accordion cho các bước đã hoàn thành
-  const [isFaceSelectorOpen, setIsFaceSelectorOpen] = useState(true);
-  const [isConfigOpen, setIsConfigOpen] = useState(true);
+  // Quản lý trạng thái Wizard 3 bước (khóa bước tuyến tính)
+  const [currentStep, setCurrentStep] = useState<WizardStep>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const pStep = params.get('step') as WizardStep;
+    if (pStep === 'generate' || pStep === 'results') return pStep;
+    return 'restore';
+  });
+  const [completedSteps, setCompletedSteps] = useState<WizardStep[]>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const pStep = params.get('step') as WizardStep;
+    if (pStep === 'results') return ['restore', 'generate'];
+    if (pStep === 'generate') return ['restore'];
+    return [];
+  });
 
-  // Khi chọn mặt xong, tự động thu gọn FaceSelector để người dùng làm bước tiếp
+  // Khởi tạo dữ liệu mô phỏng trực quan khi chạy ở chế độ preview (?preview=1)
   useEffect(() => {
-    if (store.selectedFaceIdx !== null) {
-      setIsFaceSelectorOpen(false);
-    } else {
-      setIsFaceSelectorOpen(true);
-    }
-  }, [store.selectedFaceIdx]);
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('preview')) {
+      const pStep = params.get('step') || 'restore';
+      const pStage = params.get('stage') || '';
+      const s = useSearchStore.getState();
 
-  // Khi bấm chạy pipeline hoặc đã xong, tự động thu gọn khối cấu hình
-  useEffect(() => {
-    if (store.jobStatus !== 'idle') {
-      setIsConfigOpen(false);
-      setIsFaceSelectorOpen(false);
+      s.setCheckpoints(true, []);
+      s.setIsCheckingHealth(false);
+      s.setUploadResult(
+        'session_mock_demo',
+        [{ index: 0, bbox: [80, 60, 240, 220], det_score: 0.99 }],
+        '/sample_face.png'
+      );
+      s.setSelectedFace(
+        0,
+        ['Độ phân giải khuôn mặt thấp (110x110px)', 'Khuyên dùng CodeFormer để tăng độ nét'],
+        '/restored_face.png'
+      );
+      s.setResolvedAge(12);
+      s.setGalleryDir('D:/Data/missing_persons_gallery');
+
+      if (pStep === 'generate' && pStage === 'running') {
+        s.updateJobProgress('running', 'editing');
+      } else if (pStep === 'results') {
+        s.updateJobProgress('done', 'complete', {
+          job_id: 'job_mock_demo_982',
+          status: 'done',
+          edited_images: {
+            15: '/sample_face.png',
+            20: '/gallery_match.png',
+            25: '/restored_face.png',
+            30: '/sample_face.png',
+            40: '/gallery_match.png',
+            50: '/restored_face.png',
+            60: '/sample_face.png',
+            70: '/gallery_match.png',
+          },
+          final_scores: {
+            'MP_2023_0982.jpg': 0.8466,
+            'IMG_CCTV_BinhThanh_041.jpg': 0.6210,
+            'ID_CARD_772189.png': 0.2450,
+          },
+          accepted: true,
+          top_identity: 'MP_2023_0982',
+          top_score: 0.8466,
+          best_age: 25,
+          matched_gallery_image: '/gallery_match.png',
+        });
+      }
     }
-  }, [store.jobStatus]);
+  }, []);
+
+  // Tự động chuyển sang bước 3 (Kết quả) khi pipeline hoàn tất
+  useEffect(() => {
+    if (store.jobStatus === 'done' && currentStep !== 'results') {
+      setCompletedSteps((prev) => Array.from(new Set([...prev, 'restore', 'generate'])));
+      setCurrentStep('results');
+    }
+  }, [store.jobStatus, currentStep]);
+
+  // Điều hướng stepper: chỉ cho phép click nếu bước đã nằm trong completedSteps
+  const handleStepClick = (step: WizardStep) => {
+    if (completedSteps.includes(step)) {
+      setCurrentStep(step);
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -67,6 +129,13 @@ export const SearchPage: React.FC = () => {
     }
   };
 
+  // Xác nhận bước 1 (Khôi phục ảnh) -> Chuyển sang Bước 2
+  const handleConfirmRestore = (_useRestored: boolean, _fidelity: number, _opts: any) => {
+    setCompletedSteps((prev) => Array.from(new Set([...prev, 'restore'])));
+    setCurrentStep('generate');
+  };
+
+  // Khởi động pipeline FADING ở Bước 2
   const handleRun = async () => {
     if (!store.sessionId) return;
     try {
@@ -78,11 +147,30 @@ export const SearchPage: React.FC = () => {
     }
   };
 
-  const isReadyToRun =
-    Boolean(store.sessionId &&
+  // Hủy tiến trình
+  const handleCancelJob = () => {
+    store.updateJobProgress('idle', 'specialization', undefined, 'Tiến trình đã được người dùng dừng lại');
+  };
+
+  // Làm mới toàn bộ phiên tìm kiếm
+  const handleResetAll = () => {
+    store.resetForNewUpload();
+    setCompletedSteps([]);
+    setCurrentStep('restore');
+  };
+
+  const isReadyToRun = Boolean(
+    store.sessionId &&
     store.croppedPreviewUrl &&
     store.initialAge !== null &&
-    store.jobStatus !== 'running');
+    store.jobStatus !== 'running'
+  );
+
+  const croppedFaceFullUrl = store.croppedPreviewUrl?.startsWith('/') || store.croppedPreviewUrl?.startsWith('data:')
+    ? store.croppedPreviewUrl
+    : store.croppedPreviewUrl
+    ? `http://127.0.0.1:${store.backendPort}${store.croppedPreviewUrl}`
+    : (store.uploadedImageUrl || '');
 
   return (
     <div className="max-w-[760px] mx-auto py-7 px-4 space-y-5">
@@ -94,7 +182,7 @@ export const SearchPage: React.FC = () => {
               Missing Person Search via <span className="text-[#C97B4A]">FADING</span>
             </h1>
             <span className="bg-[#12161C] border border-[#262E38] text-[#8E98A5] text-[11px] px-2 py-0.5 rounded-full font-mono font-medium">
-              v2.0 Desktop
+              v2.0 Desktop Wizard
             </span>
           </div>
           <p className="text-xs text-[#8E98A5] mt-1">
@@ -110,7 +198,7 @@ export const SearchPage: React.FC = () => {
 
           {store.sessionId && (
             <button
-              onClick={() => store.resetForNewUpload()}
+              onClick={handleResetAll}
               className="flex items-center gap-1.5 text-xs bg-[#1B2129] hover:bg-[#262E38] text-[#E8E6E0] px-3 py-1.5 rounded-lg border border-[#262E38] transition-colors"
             >
               <RotateCcw className="w-3.5 h-3.5 text-[#8E98A5]" />
@@ -120,202 +208,152 @@ export const SearchPage: React.FC = () => {
         </div>
       </header>
 
-      {/* BƯỚC 1: UPLOAD ẢNH */}
-      {!store.sessionId ? (
-        <div className="bg-[#1B2129] border-2 border-dashed border-[#262E38] hover:border-[#C97B4A] rounded-2xl p-10 text-center transition-all duration-200 group shadow-lg">
-          <input
-            type="file"
-            id="file-upload"
-            accept="image/png, image/jpeg, image/jpg"
-            onChange={handleFileChange}
-            className="hidden"
-            disabled={isUploading}
-          />
-          <label htmlFor="file-upload" className="cursor-pointer block">
-            <div className="w-14 h-14 bg-[#12161C] border border-[#262E38] text-[#C97B4A] rounded-2xl flex items-center justify-center mx-auto mb-3.5 group-hover:scale-105 transition-transform">
-              {isUploading ? (
-                <Loader2 className="w-7 h-7 animate-spin text-[#C97B4A]" />
-              ) : (
-                <UploadCloud className="w-7 h-7" />
+      {/* THANH STEPPER ĐIỀU HƯỚNG CỐ ĐỊNH TRÊN ĐẦU MỌI MÀN HÌNH */}
+      <WizardStepper
+        currentStep={currentStep}
+        completedSteps={completedSteps}
+        onStepClick={handleStepClick}
+      />
+
+      {/* ============================================================ */}
+      {/* BƯỚC 1: KHÔI PHỤC ẢNH CŨ (TÙY CHỌN) */}
+      {/* ============================================================ */}
+      {currentStep === 'restore' && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {!store.sessionId ? (
+            /* Upload dropzone */
+            <div className="bg-[#1B2129] border-2 border-dashed border-[#262E38] hover:border-[#C97B4A] rounded-2xl p-10 text-center transition-all duration-200 group shadow-lg">
+              <input
+                type="file"
+                id="file-upload"
+                accept="image/png, image/jpeg, image/jpg"
+                onChange={handleFileChange}
+                className="hidden"
+                disabled={isUploading}
+              />
+              <label htmlFor="file-upload" className="cursor-pointer block">
+                <div className="w-14 h-14 bg-[#12161C] border border-[#262E38] text-[#C97B4A] rounded-2xl flex items-center justify-center mx-auto mb-3.5 group-hover:scale-105 transition-transform">
+                  {isUploading ? (
+                    <Loader2 className="w-7 h-7 animate-spin text-[#C97B4A]" />
+                  ) : (
+                    <UploadCloud className="w-7 h-7" />
+                  )}
+                </div>
+                <h3 className="text-base font-bold text-[#E8E6E0] mb-1">
+                  {isUploading ? 'Đang tải và phát hiện khuôn mặt...' : 'Chọn hoặc kéo thả ảnh cần tìm'}
+                </h3>
+                <p className="text-xs text-[#8E98A5] max-w-sm mx-auto">
+                  Hỗ trợ PNG, JPG, JPEG. Tự động phát hiện khuôn mặt và kiểm tra chất lượng góc nghiêng.
+                </p>
+              </label>
+
+              {uploadError && (
+                <div className="mt-4 inline-block bg-[#B8564A]/15 border border-[#B8564A]/40 text-[#E8E6E0] text-xs px-3.5 py-2 rounded-lg">
+                  {uploadError}
+                </div>
               )}
             </div>
-            <h3 className="text-base font-bold text-[#E8E6E0] mb-1">
-              {isUploading ? 'Đang tải và phát hiện khuôn mặt...' : 'Chọn hoặc kéo thả ảnh cần tìm'}
-            </h3>
-            <p className="text-xs text-[#8E98A5] max-w-sm mx-auto">
-              Hỗ trợ PNG, JPG, JPEG. Tự động phát hiện khuôn mặt và kiểm tra chất lượng góc nghiêng.
-            </p>
-          </label>
+          ) : (
+            /* Khi đã có ảnh: Hiển thị FaceSelector và PhotoRestoration */
+            <div className="space-y-4">
+              <FaceSelector />
+              <QualityWarnings />
 
-          {uploadError && (
-            <div className="mt-4 inline-block bg-[#B8564A]/15 border border-[#B8564A]/40 text-[#E8E6E0] text-xs px-3.5 py-2 rounded-lg">
-              {uploadError}
+              {/* Khối Khôi phục ảnh CodeFormer với Before/After slider */}
+              {store.croppedPreviewUrl && (
+                <PhotoRestoration
+                  originalFaceUrl={croppedFaceFullUrl}
+                  onConfirm={handleConfirmRestore}
+                />
+              )}
             </div>
           )}
-        </div>
-      ) : (
-        /* Accordion Bước 1 đã hoàn thành */
-        <div className="bg-[#1B2129] border border-[#262E38] rounded-xl px-4 py-3 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="w-4 h-4 text-[#4A8FA0] flex-shrink-0" />
-            <span className="font-semibold text-[#E8E6E0]">Bước 1: Đã tải ảnh đầu vào thành công</span>
-            <span className="text-[#8E98A5] text-[11px]">({store.faces.length} khuôn mặt phát hiện)</span>
-          </div>
-          <button
-            onClick={() => store.resetForNewUpload()}
-            className="text-[11px] text-[#C97B4A] hover:underline flex items-center gap-1 font-medium"
-          >
-            Tải ảnh khác
-          </button>
         </div>
       )}
 
-      {/* BƯỚC 2: CHỌN KHUÔN MẶT & CẢNH BÁO */}
-      {store.sessionId && (
-        <div className="space-y-4">
-          {/* Accordion Header / Summary khi đã chọn mặt */}
-          {store.selectedFaceIdx !== null && !isFaceSelectorOpen ? (
-            <div
-              onClick={() => setIsFaceSelectorOpen(true)}
-              className="bg-[#1B2129] border border-[#262E38] hover:border-[#C97B4A]/50 rounded-xl px-4 py-3 flex items-center justify-between text-xs cursor-pointer transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <CheckCircle2 className="w-4 h-4 text-[#4A8FA0] flex-shrink-0" />
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-[#E8E6E0]">
-                    Bước 2: Khuôn mặt đối tượng #{store.selectedFaceIdx + 1}
-                  </span>
-                  {store.croppedPreviewUrl && (
-                    <img
-                      src={`http://127.0.0.1:${store.backendPort}${store.croppedPreviewUrl}`}
-                      alt="Face thumbnail"
-                      className="w-6 h-6 rounded object-cover border border-[#4A8FA0]"
-                    />
-                  )}
-                  <span className="text-[#8E98A5] text-[11px]">
-                    (Độ tin cậy: {((store.faces[store.selectedFaceIdx]?.det_score || 0) * 100).toFixed(1)}%)
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 text-[#8E98A5] hover:text-[#E8E6E0]">
-                <span>Xem & đổi mặt</span>
-                <ChevronDown className="w-3.5 h-3.5" />
-              </div>
-            </div>
+      {/* ============================================================ */}
+      {/* BƯỚC 2: SINH ẢNH & ĐỐI SOÁT */}
+      {/* ============================================================ */}
+      {currentStep === 'generate' && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {store.jobStatus === 'running' ? (
+            /* Khi bấm chạy: Khối tiến trình in-place thay thế Form ngay tại chỗ */
+            <JobProgressBlock
+              jobStage={store.jobStage}
+              jobStatus={store.jobStatus}
+              jobError={store.jobError}
+              onCancel={handleCancelJob}
+            />
           ) : (
-            /* Nội dung đầy đủ khi đang chọn mặt */
-            <div className="space-y-3">
+            /* Form cấu hình đối tượng & Gallery đối soát */
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-[#8E98A5] uppercase tracking-wide flex items-center gap-1.5">
-                  <UserCheck className="w-4 h-4 text-[#C97B4A]" />
-                  Bước 2: Chọn khuôn mặt cần tìm
-                </span>
-                {store.selectedFaceIdx !== null && (
-                  <button
-                    onClick={() => setIsFaceSelectorOpen(false)}
-                    className="text-xs text-[#8E98A5] hover:text-[#E8E6E0] flex items-center gap-1"
-                  >
-                    <span>Thu gọn</span>
-                    <ChevronUp className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-              <FaceSelector />
-              <QualityWarnings />
-            </div>
-          )}
-
-          {/* BƯỚC 3: CẤU HÌNH THÔNG TIN & GALLERY */}
-          {store.selectedFaceIdx !== null && (
-            <div>
-              {/* Accordion Header / Summary khi đã xong bước cấu hình và đang chạy / hoàn tất */}
-              {store.initialAge !== null && !isConfigOpen ? (
-                <div
-                  onClick={() => setIsConfigOpen(true)}
-                  className="bg-[#1B2129] border border-[#262E38] hover:border-[#C97B4A]/50 rounded-xl px-4 py-3 flex items-center justify-between text-xs cursor-pointer transition-colors"
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep('restore')}
+                  className="text-xs text-[#8E98A5] hover:text-[#E8E6E0] flex items-center gap-1.5 transition-colors"
                 >
-                  <div className="flex items-center gap-2.5">
-                    <CheckCircle2 className="w-4 h-4 text-[#4A8FA0] flex-shrink-0" />
-                    <span className="font-semibold text-[#E8E6E0]">
-                      Bước 3: {store.genderWord === 'man' ? 'Nam' : 'Nữ'} • {store.initialAge} tuổi
-                    </span>
-                    <span className="text-[#8E98A5] truncate max-w-[260px]">
-                      • Gallery: {store.galleryDir ? store.galleryDir : 'Mặc định'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1 text-[#8E98A5] hover:text-[#E8E6E0]">
-                    <span>Chỉnh sửa</span>
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-              ) : (
-                /* Nội dung đầy đủ khi đang cấu hình thông tin */
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-[#8E98A5] uppercase tracking-wide flex items-center gap-1.5">
-                      <Settings2 className="w-4 h-4 text-[#C97B4A]" />
-                      Bước 3: Thông tin đối tượng & Thư viện đối soát
-                    </span>
-                    {store.initialAge !== null && store.jobStatus !== 'idle' && (
-                      <button
-                        onClick={() => setIsConfigOpen(false)}
-                        className="text-xs text-[#8E98A5] hover:text-[#E8E6E0] flex items-center gap-1"
-                      >
-                        <span>Thu gọn</span>
-                        <ChevronUp className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Quay lại bước khôi phục ảnh</span>
+                </button>
+              </div>
 
-                  <div className="space-y-4">
-                    <AgeInputForm />
-                    <GalleryPicker />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+              <AgeInputForm />
+              <GalleryPicker />
 
-          {/* BƯỚC 4: NÚT HÀNH ĐỘNG CHẠY PIPELINE (Màu phẳng #C97B4A) */}
-          {store.selectedFaceIdx !== null && (
-            <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg space-y-3">
-              <div className="flex items-center justify-between">
+              {/* Nút hành động Chạy Pipeline */}
+              <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg space-y-3">
                 <div>
-                  <h4 className="text-sm font-semibold text-[#E8E6E0]">Sẵn sàng khởi động quy trình</h4>
+                  <h4 className="text-sm font-semibold text-[#E8E6E0]">Sẵn sàng khởi động quy trình FADING</h4>
                   <p className="text-xs text-[#8E98A5] mt-0.5">
-                    Pipeline tuần tự qua Inversion, Cross-Attention Editing và FAISS Search.
+                    Pipeline sẽ chạy tuần tự qua Inversion, Attention Editing và FAISS Search.
                   </p>
                 </div>
-              </div>
 
-              <button
-                onClick={handleRun}
-                disabled={!isReadyToRun}
-                className="w-full flex items-center justify-center gap-2 bg-[#C97B4A] hover:brightness-110 text-white font-bold py-3 px-5 rounded-xl transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {store.jobStatus === 'running' ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-white" />
-                    <span>Pipeline Đang Chạy Trên GPU...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 fill-current" />
-                    <span>Chạy Pipeline FADING</span>
-                  </>
-                )}
-              </button>
+                <button
+                  type="button"
+                  data-testid="run-pipeline-btn"
+                  onClick={handleRun}
+                  disabled={!isReadyToRun}
+                  className="w-full flex items-center justify-center gap-2 bg-[#C97B4A] hover:brightness-110 text-white font-bold py-3.5 px-5 rounded-xl transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>Chạy Pipeline FADING</span>
+                </button>
+              </div>
             </div>
           )}
+        </div>
+      )}
 
-          {/* TIẾN TRÌNH 4 GIAI ĐOẠN */}
-          <ProgressStages />
+      {/* ============================================================ */}
+      {/* BƯỚC 3: KẾT QUẢ ĐỐI SOÁT */}
+      {/* ============================================================ */}
+      {currentStep === 'results' && (
+        <div className="space-y-5 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setCurrentStep('generate')}
+              className="text-xs text-[#8E98A5] hover:text-[#E8E6E0] flex items-center gap-1.5 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Xem lại thông tin cấu hình đối soát</span>
+            </button>
 
-          {/* BẢNG KẾT QUẢ, HERO CARD 3 ẢNH & LIGHTBOX */}
+            <button
+              type="button"
+              onClick={handleResetAll}
+              className="text-xs text-[#C97B4A] hover:underline flex items-center gap-1 font-semibold"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Bắt đầu phiên tìm kiếm mới</span>
+            </button>
+          </div>
+
           <ResultsGallery />
         </div>
       )}
     </div>
   );
 };
-

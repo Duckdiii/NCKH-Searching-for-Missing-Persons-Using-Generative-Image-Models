@@ -129,7 +129,11 @@ export const FaceSelector: React.FC = () => {
               Mặt căn chỉnh FFHQ (256x256)
             </span>
             <img
-              src={`http://127.0.0.1:${store.backendPort}${store.croppedPreviewUrl}`}
+              src={
+                store.croppedPreviewUrl.startsWith('/') || store.croppedPreviewUrl.startsWith('data:')
+                  ? store.croppedPreviewUrl
+                  : `http://127.0.0.1:${store.backendPort}${store.croppedPreviewUrl}`
+              }
               alt="Cropped Face"
               className="w-36 h-36 rounded-lg border-2 border-[#4A8FA0] shadow object-cover bg-black"
             />
