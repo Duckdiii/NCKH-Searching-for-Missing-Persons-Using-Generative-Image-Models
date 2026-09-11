@@ -3,7 +3,6 @@ import { useSearchStore } from '../store/useSearchStore';
 import { useSearchApi } from '../api/useSearchApi';
 import { WizardStepper, WizardStep } from '../components/WizardStepper';
 import { FaceSelector } from '../components/FaceSelector';
-import { QualityWarnings } from '../components/QualityWarnings';
 import { PhotoRestoration } from '../components/PhotoRestoration';
 import { AgeInputForm } from '../components/AgeInputForm';
 import { GalleryPicker } from '../components/GalleryPicker';
@@ -17,6 +16,7 @@ import {
   Loader2,
   ArrowLeft,
   RefreshCw,
+  CheckCircle2,
 } from 'lucide-react';
 
 export const SearchPage: React.FC = () => {
@@ -50,6 +50,11 @@ export const SearchPage: React.FC = () => {
 
       s.setCheckpoints(true, []);
       s.setIsCheckingHealth(false);
+
+      if (params.get('empty') === '1') {
+        return;
+      }
+
       s.setUploadResult(
         'session_mock_demo',
         [{ index: 0, bbox: [80, 60, 240, 220], det_score: 0.99 }],
@@ -173,7 +178,7 @@ export const SearchPage: React.FC = () => {
     : (store.uploadedImageUrl || '');
 
   return (
-    <div className="max-w-[760px] mx-auto py-7 px-4 space-y-5">
+    <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 space-y-6">
       {/* Header phẳng, không gradient */}
       <header className="flex items-center justify-between border-b border-[#262E38] pb-4">
         <div>
@@ -181,7 +186,7 @@ export const SearchPage: React.FC = () => {
             <h1 className="text-xl font-bold text-[#E8E6E0]">
               Missing Person Search via <span className="text-[#C97B4A]">FADING</span>
             </h1>
-            <span className="bg-[#12161C] border border-[#262E38] text-[#8E98A5] text-[11px] px-2 py-0.5 rounded-full font-mono font-medium">
+            <span className="bg-[#12161C] border border-[#262E38] text-[#8E98A5] text-[11px] px-2.5 py-0.5 rounded-full font-mono font-medium">
               v2.0 Desktop Wizard
             </span>
           </div>
@@ -219,53 +224,123 @@ export const SearchPage: React.FC = () => {
       {/* BƯỚC 1: KHÔI PHỤC ẢNH CŨ (TÙY CHỌN) */}
       {/* ============================================================ */}
       {currentStep === 'restore' && (
-        <div className="space-y-4 animate-in fade-in duration-200">
+        <div className="space-y-6 animate-in fade-in duration-200">
           {!store.sessionId ? (
-            /* Upload dropzone */
-            <div className="bg-[#1B2129] border-2 border-dashed border-[#262E38] hover:border-[#C97B4A] rounded-2xl p-10 text-center transition-all duration-200 group shadow-lg">
-              <input
-                type="file"
-                id="file-upload"
-                accept="image/png, image/jpeg, image/jpg"
-                onChange={handleFileChange}
-                className="hidden"
-                disabled={isUploading}
-              />
-              <label htmlFor="file-upload" className="cursor-pointer block">
-                <div className="w-14 h-14 bg-[#12161C] border border-[#262E38] text-[#C97B4A] rounded-2xl flex items-center justify-center mx-auto mb-3.5 group-hover:scale-105 transition-transform">
-                  {isUploading ? (
-                    <Loader2 className="w-7 h-7 animate-spin text-[#C97B4A]" />
-                  ) : (
-                    <UploadCloud className="w-7 h-7" />
+            /* Trạng thái trống (chưa có ảnh): 2 cột (lg: 1024px) */
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Cột trái (~58% / lg:col-span-7): Ô upload / kéo thả */}
+              <div className="lg:col-span-7">
+                <div className="bg-[#1B2129] border-2 border-dashed border-[#262E38] hover:border-[#C97B4A] rounded-2xl p-10 text-center transition-all duration-200 group shadow-lg">
+                  <input
+                    type="file"
+                    id="file-upload"
+                    accept="image/png, image/jpeg, image/jpg"
+                    onChange={handleFileChange}
+                    className="hidden"
+                    disabled={isUploading}
+                  />
+                  <label htmlFor="file-upload" className="cursor-pointer block">
+                    <div className="w-16 h-16 bg-[#12161C] border border-[#262E38] text-[#C97B4A] rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform shadow-md">
+                      {isUploading ? (
+                        <Loader2 className="w-8 h-8 animate-spin text-[#C97B4A]" />
+                      ) : (
+                        <UploadCloud className="w-8 h-8" />
+                      )}
+                    </div>
+                    <h3 className="text-base font-bold text-[#E8E6E0] mb-1.5">
+                      {isUploading ? 'Đang tải và phát hiện khuôn mặt...' : 'Chọn hoặc kéo thả ảnh cần tìm'}
+                    </h3>
+                    <p className="text-xs text-[#8E98A5] max-w-md mx-auto">
+                      Hỗ trợ định dạng PNG, JPG, JPEG. Hệ thống sẽ tự động nhận diện và căn chỉnh khuôn mặt chuẩn FFHQ 256×256.
+                    </p>
+                  </label>
+
+                  {uploadError && (
+                    <div className="mt-4 inline-block bg-[#B8564A]/15 border border-[#B8564A]/40 text-[#E8E6E0] text-xs px-3.5 py-2 rounded-lg">
+                      {uploadError}
+                    </div>
                   )}
                 </div>
-                <h3 className="text-base font-bold text-[#E8E6E0] mb-1">
-                  {isUploading ? 'Đang tải và phát hiện khuôn mặt...' : 'Chọn hoặc kéo thả ảnh cần tìm'}
-                </h3>
-                <p className="text-xs text-[#8E98A5] max-w-sm mx-auto">
-                  Hỗ trợ PNG, JPG, JPEG. Tự động phát hiện khuôn mặt và kiểm tra chất lượng góc nghiêng.
-                </p>
-              </label>
+              </div>
 
-              {uploadError && (
-                <div className="mt-4 inline-block bg-[#B8564A]/15 border border-[#B8564A]/40 text-[#E8E6E0] text-xs px-3.5 py-2 rounded-lg">
-                  {uploadError}
+              {/* Cột phải (~42% / lg:col-span-5): Card tĩnh "Ảnh đầu vào tốt cần gì?" */}
+              <div className="lg:col-span-5 bg-[#1B2129] border border-[#262E38] rounded-2xl p-5 sm:p-6 shadow-lg space-y-4">
+                <div className="flex items-center gap-2 border-b border-[#262E38] pb-3">
+                  <CheckCircle2 className="w-4 h-4 text-[#4A8FA0]" />
+                  <h4 className="text-sm font-bold text-[#E8E6E0]">Ảnh đầu vào tốt cần gì?</h4>
                 </div>
-              )}
+                <p className="text-xs text-[#8E98A5]">
+                  Để mô hình khuếch tán FADING sinh các lứa tuổi đạt độ nhận diện danh tính cao nhất:
+                </p>
+
+                <div className="space-y-3.5 text-xs">
+                  <div className="flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-[#4A8FA0]/20 text-[#4A8FA0] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
+                      1
+                    </div>
+                    <div>
+                      <p className="font-semibold text-[#E8E6E0]">Chính diện, rõ nét</p>
+                      <p className="text-[#8E98A5] mt-0.5">
+                        Khuôn mặt nhìn thẳng, góc quay đầu nghiêng không quá 15° so với trục ống kính.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-[#4A8FA0]/20 text-[#4A8FA0] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
+                      2
+                    </div>
+                    <div>
+                      <p className="font-semibold text-[#E8E6E0]">Chỉ 1 khuôn mặt</p>
+                      <p className="text-[#8E98A5] mt-0.5">
+                        Ảnh chân dung chụp đơn lẻ một người, không bị che khuất bởi người đứng cạnh.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-[#4A8FA0]/20 text-[#4A8FA0] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
+                      3
+                    </div>
+                    <div>
+                      <p className="font-semibold text-[#E8E6E0]">Độ phân giải khuôn mặt ≥ 128×128px</p>
+                      <p className="text-[#8E98A5] mt-0.5">
+                        Vùng mặt càng sắc nét thì vector đặc trưng khuôn mặt trích xuất càng chuẩn xác.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-[#4A8FA0]/20 text-[#4A8FA0] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
+                      4
+                    </div>
+                    <div>
+                      <p className="font-semibold text-[#E8E6E0]">Không bị che khuất ngũ quan</p>
+                      <p className="text-[#8E98A5] mt-0.5">
+                        Tránh ảnh đeo kính râm tối màu, khẩu trang hoặc tóc xõa phủ kín mắt và mũi.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
-            /* Khi đã có ảnh: Hiển thị FaceSelector và PhotoRestoration */
-            <div className="space-y-4">
-              <FaceSelector />
-              <QualityWarnings />
+            /* Khi đã có ảnh: Bố cục 2 cột song song (FaceSelector + PhotoRestoration) */
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Cột trái (lg:col-span-6): Card khuôn mặt đã phát hiện + Cảnh báo tích hợp */}
+              <div className="lg:col-span-6">
+                <FaceSelector />
+              </div>
 
-              {/* Khối Khôi phục ảnh CodeFormer với Before/After slider */}
-              {store.croppedPreviewUrl && (
-                <PhotoRestoration
-                  originalFaceUrl={croppedFaceFullUrl}
-                  onConfirm={handleConfirmRestore}
-                />
-              )}
+              {/* Cột phải (lg:col-span-6): Khôi phục ảnh CodeFormer */}
+              <div className="lg:col-span-6">
+                {store.croppedPreviewUrl && (
+                  <PhotoRestoration
+                    originalFaceUrl={croppedFaceFullUrl}
+                    onConfirm={handleConfirmRestore}
+                  />
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -275,51 +350,157 @@ export const SearchPage: React.FC = () => {
       {/* BƯỚC 2: SINH ẢNH & ĐỐI SOÁT */}
       {/* ============================================================ */}
       {currentStep === 'generate' && (
-        <div className="space-y-4 animate-in fade-in duration-200">
+        <div className="space-y-6 animate-in fade-in duration-200">
           {store.jobStatus === 'running' ? (
-            /* Khi bấm chạy: Khối tiến trình in-place thay thế Form ngay tại chỗ */
-            <JobProgressBlock
-              jobStage={store.jobStage}
-              jobStatus={store.jobStatus}
-              jobError={store.jobError}
-              onCancel={handleCancelJob}
-            />
-          ) : (
-            /* Form cấu hình đối tượng & Gallery đối soát */
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setCurrentStep('restore')}
-                  className="text-xs text-[#8E98A5] hover:text-[#E8E6E0] flex items-center gap-1.5 transition-colors"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Quay lại bước khôi phục ảnh</span>
-                </button>
+            /* Khi bấm chạy: Tiến trình 2 cột */
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Cột trái (~60% / lg:col-span-7): Khối tiến trình 3 bước con in-place */}
+              <div className="lg:col-span-7">
+                <JobProgressBlock
+                  jobStage={store.jobStage}
+                  jobStatus={store.jobStatus}
+                  jobError={store.jobError}
+                  onCancel={handleCancelJob}
+                />
               </div>
 
-              <AgeInputForm />
-              <GalleryPicker />
-
-              {/* Nút hành động Chạy Pipeline */}
-              <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg space-y-3">
-                <div>
-                  <h4 className="text-sm font-semibold text-[#E8E6E0]">Sẵn sàng khởi động quy trình FADING</h4>
-                  <p className="text-xs text-[#8E98A5] mt-0.5">
-                    Pipeline sẽ chạy tuần tự qua Inversion, Attention Editing và FAISS Search.
-                  </p>
+              {/* Cột phải (~40% / lg:col-span-5): Card Thông tin phiên chạy */}
+              <div className="lg:col-span-5 bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg space-y-4">
+                <div className="border-b border-[#262E38] pb-3">
+                  <h4 className="text-sm font-bold text-[#E8E6E0]">Thông tin phiên chạy</h4>
+                  <p className="text-xs text-[#8E98A5] mt-0.5">Tiến trình AI đang thực thi trên phần cứng GPU</p>
                 </div>
 
-                <button
-                  type="button"
-                  data-testid="run-pipeline-btn"
-                  onClick={handleRun}
-                  disabled={!isReadyToRun}
-                  className="w-full flex items-center justify-center gap-2 bg-[#C97B4A] hover:brightness-110 text-white font-bold py-3.5 px-5 rounded-xl transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Play className="w-4 h-4 fill-current" />
-                  <span>Chạy Pipeline FADING</span>
-                </button>
+                <div className="flex items-center gap-3.5 p-3.5 bg-[#12161C] border border-[#262E38] rounded-xl">
+                  {croppedFaceFullUrl ? (
+                    <img
+                      src={croppedFaceFullUrl}
+                      alt="Cropped target"
+                      className="w-14 h-14 rounded-lg object-cover border border-[#C97B4A] shadow bg-black flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-lg bg-black/40 flex items-center justify-center text-xs text-[#8E98A5]">
+                      Mặt gốc
+                    </div>
+                  )}
+                  <div className="text-xs space-y-1 overflow-hidden">
+                    <p className="font-semibold text-[#E8E6E0]">
+                      Đối tượng: {store.genderWord === 'man' ? 'Nam' : 'Nữ'} • {store.initialAge ?? store.manualAge} tuổi
+                    </p>
+                    <p className="text-[11px] text-[#4A8FA0] font-mono truncate">
+                      Job ID: {store.jobId || store.sessionId || 'job_fading_active'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex justify-between py-1.5 border-b border-[#262E38]">
+                    <span className="text-[#8E98A5]">Dải tuổi dự đoán:</span>
+                    <span className="text-[#E8E6E0] font-mono">15 - 70 tuổi (8 mốc)</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-[#262E38]">
+                    <span className="text-[#8E98A5]">Phần cứng xử lý:</span>
+                    <span className="text-[#4A8FA0] font-mono">NVIDIA CUDA / TensorRT</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-b border-[#262E38]">
+                    <span className="text-[#8E98A5]">Giai đoạn hiện tại:</span>
+                    <span className="text-[#C97B4A] font-semibold uppercase">{store.jobStage}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Trạng thái nhập liệu: 2 cột */
+            <div className="space-y-4">
+              <button
+                type="button"
+                onClick={() => setCurrentStep('restore')}
+                className="text-xs text-[#8E98A5] hover:text-[#E8E6E0] flex items-center gap-1.5 transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Quay lại bước khôi phục ảnh</span>
+              </button>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* Cột trái (~60% / lg:col-span-7): Form nhập liệu */}
+                <div className="lg:col-span-7 space-y-5">
+                  <AgeInputForm />
+                  <GalleryPicker />
+                </div>
+
+                {/* Cột phải (~40% / lg:col-span-5): Card Tóm tắt trước khi chạy + Nút CTA chính */}
+                <div className="lg:col-span-5 bg-[#1B2129] border border-[#262E38] rounded-xl p-5 sm:p-6 shadow-lg space-y-4 lg:sticky lg:top-6">
+                  <div className="border-b border-[#262E38] pb-3">
+                    <h4 className="text-sm font-bold text-[#E8E6E0]">Tóm tắt trước khi chạy</h4>
+                    <p className="text-xs text-[#8E98A5] mt-0.5">Xác nhận cấu hình trước khi khởi động pipeline FADING</p>
+                  </div>
+
+                  <div className="flex items-center gap-3.5 p-3.5 bg-[#12161C] border border-[#262E38] rounded-xl">
+                    {croppedFaceFullUrl ? (
+                      <img
+                        src={croppedFaceFullUrl}
+                        alt="Selected Target Face"
+                        className="w-16 h-16 rounded-lg object-cover border-2 border-[#4A8FA0] shadow bg-black flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-lg bg-black/40 border border-[#262E38] flex items-center justify-center text-[10px] text-[#8E98A5]">
+                        Chưa có ảnh
+                      </div>
+                    )}
+                    <div className="text-xs space-y-1 overflow-hidden">
+                      <p className="font-bold text-[#E8E6E0]">
+                        Đối tượng: {store.genderWord === 'man' ? 'Nam (Man / Boy)' : 'Nữ (Woman / Girl)'}
+                      </p>
+                      <p className="text-[#8E98A5]">
+                        Tuổi lúc chụp:{' '}
+                        <span className="font-semibold text-[#C97B4A]">
+                          {store.initialAge ?? store.manualAge} tuổi
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-[#8E98A5]">
+                        Xác định:{' '}
+                        {store.ageMode === 'manual' ? 'Nhập chính xác' : 'MiVOLO AI ước tính'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between py-1.5 border-b border-[#262E38]">
+                      <span className="text-[#8E98A5]">Thư viện đối soát:</span>
+                      <span
+                        className="font-mono text-[#E8E6E0] text-right truncate max-w-[170px]"
+                        title={store.galleryDir || 'Mặc định (test_gallery)'}
+                      >
+                        {store.galleryDir
+                          ? store.galleryDir.split(/[\\/]/).pop() || store.galleryDir
+                          : 'Mặc định (test_gallery)'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-[#262E38]">
+                      <span className="text-[#8E98A5]">Dải tuổi sẽ sinh:</span>
+                      <span className="text-[#E8E6E0] font-mono">15 - 70 tuổi (8 mốc)</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-[#262E38]">
+                      <span className="text-[#8E98A5]">Quy trình xử lý:</span>
+                      <span className="text-[#4A8FA0] font-mono">Inversion → Edit → FAISS</span>
+                    </div>
+                  </div>
+
+                  {/* Nút CTA chính nằm ngay trong card tóm tắt */}
+                  <button
+                    type="button"
+                    data-testid="run-pipeline-btn"
+                    onClick={handleRun}
+                    disabled={!isReadyToRun}
+                    className="w-full flex items-center justify-center gap-2 bg-[#C97B4A] hover:bg-[#B56D40] text-white font-bold py-3.5 px-5 rounded-xl transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Chạy Pipeline FADING</span>
+                  </button>
+                  <p className="text-[11px] text-[#8E98A5] text-center">
+                    Mỗi lần chạy sẽ tính toán và sinh ảnh qua GPU (ước tính ~30s)
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -330,7 +511,7 @@ export const SearchPage: React.FC = () => {
       {/* BƯỚC 3: KẾT QUẢ ĐỐI SOÁT */}
       {/* ============================================================ */}
       {currentStep === 'results' && (
-        <div className="space-y-5 animate-in fade-in duration-200">
+        <div className="space-y-6 animate-in fade-in duration-200">
           <div className="flex items-center justify-between">
             <button
               type="button"
@@ -357,3 +538,4 @@ export const SearchPage: React.FC = () => {
     </div>
   );
 };
+

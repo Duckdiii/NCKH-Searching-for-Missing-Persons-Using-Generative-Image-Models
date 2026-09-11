@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Sparkles, Sliders, CheckCircle2, ArrowRight } from 'lucide-react';
 
 interface PhotoRestorationProps {
@@ -174,7 +174,7 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
         <button
           type="button"
           onClick={() => onConfirm(true, fidelity, { whiteBalance, adaptivePadding })}
-          className="flex-1 flex items-center justify-center gap-2 bg-[#4A8FA0] hover:brightness-110 text-white font-bold text-xs py-3 px-4 rounded-xl transition-all shadow-md"
+          className="flex-1 flex items-center justify-center gap-2 bg-[#C97B4A] hover:bg-[#B56D40] text-white font-bold text-xs py-3 px-4 rounded-xl transition-all shadow-md"
         >
           <CheckCircle2 className="w-4 h-4" />
           <span>Dùng ảnh đã khôi phục</span>

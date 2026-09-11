@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Check, Lock } from 'lucide-react';
 
 export type WizardStep = 'restore' | 'generate' | 'results';
@@ -59,9 +59,9 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
                     onStepClick(step.id);
                   }
                 }}
-                className={`flex items-center gap-3 text-left transition-all ${
+                className={`flex items-center gap-3 text-left transition-all px-2.5 py-1.5 rounded-xl ${
                   canClick
-                    ? 'cursor-pointer hover:opacity-90'
+                    ? 'cursor-pointer hover:bg-[#12161C] hover:ring-1 hover:ring-[#4A8FA0]/40 group'
                     : isCurrent
                     ? 'cursor-default'
                     : 'cursor-not-allowed opacity-40 pointer-events-none'
@@ -72,7 +72,7 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
                     isCurrent
                       ? 'bg-[#C97B4A] border-[#C97B4A] text-[#E8E6E0] shadow-md ring-2 ring-[#C97B4A]/30'
                       : isCompleted
-                      ? 'bg-[#4A8FA0]/20 border-[#4A8FA0] text-[#4A8FA0]'
+                      ? 'bg-[#4A8FA0]/20 border-[#4A8FA0] text-[#4A8FA0] group-hover:scale-105 group-hover:bg-[#4A8FA0]/30'
                       : 'bg-[#12161C] border-[#262E38] text-[#8E98A5]'
                   }`}
                 >

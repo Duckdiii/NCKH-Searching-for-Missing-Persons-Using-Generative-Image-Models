@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useSearchStore } from '../store/useSearchStore';
 import { useSearchApi } from '../api/useSearchApi';
-import { CheckCircle2, UserCheck } from 'lucide-react';
+import { CheckCircle2, UserCheck, AlertTriangle } from 'lucide-react';
 
 export const FaceSelector: React.FC = () => {
   const store = useSearchStore();
@@ -145,6 +145,24 @@ export const FaceSelector: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Banner cảnh báo chất lượng nhẹ nhàng tích hợp ngay trong card */}
+      {store.warnings && store.warnings.length > 0 && (
+        <div className="mt-3.5 pt-3 border-t border-[#262E38] space-y-1.5">
+          <div className="flex items-center gap-1.5 text-[#C9A24A] text-xs font-medium">
+            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-[#C9A24A]" />
+            <span>Gợi ý tối ưu chất lượng ảnh:</span>
+          </div>
+          <ul className="space-y-0.5 pl-5 list-disc text-xs text-[#8E98A5]">
+            {store.warnings.map((w, idx) => (
+              <li key={idx}>{w}</li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-[#8E98A5]/80 italic pt-0.5">
+            Khuyến nghị: Ảnh chính diện, góc nghiêng ≤ 15° và rõ nét sẽ cho kết quả nhận diện FADING tối ưu nhất.
+          </p>
+        </div>
+      )}
     </div>
   );
 };
