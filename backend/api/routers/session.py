@@ -16,6 +16,7 @@ from backend.api.schemas import (
 )
 from backend.api.session_store import SessionState, get_session, save_session
 from src.utils.age_estimator import resolve_initial_age
+from src.utils.face_enhancement import preprocess_face_image
 from src.utils.ffhq_align import align_to_ffhq
 from src.utils.head_pose import check_image_quality
 
@@ -95,8 +96,11 @@ def select_face(session_id: str, req: SelectFaceRequest):
         float(chosen_face.det_score)
     )
 
+    # Tiền xử lý theo chuẩn Kaggle 3: Adaptive Padding + Shades of Gray WB + CodeFormer
+    preprocessed_bgr, updated_kps = preprocess_face_image(session.image_bgr, kps=chosen_face.kps)
+
     # Căn chỉnh FFHQ chuẩn
-    cropped = align_to_ffhq(session.image_bgr, chosen_face.kps, output_size=256)
+    cropped = align_to_ffhq(preprocessed_bgr, updated_kps, output_size=256)
     os.makedirs("outputs/app_uploads", exist_ok=True)
     cropped_filename = f"{session_id}_crop.png"
     cropped_path = os.path.join("outputs", "app_uploads", cropped_filename)

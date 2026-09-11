@@ -90,9 +90,12 @@ class FaceEmbedder:
         if self.app is None:
             self._load_model()
 
-        img = cv2.imread(image_path)
-        if img is None:
-            raise ValueError(f"Không đọc được ảnh: {image_path}")
+        if isinstance(image_path, np.ndarray):
+            img = image_path
+        else:
+            img = cv2.imread(image_path)
+            if img is None:
+                raise ValueError(f"Không đọc được ảnh: {image_path}")
 
         return self.app.get(img)
 

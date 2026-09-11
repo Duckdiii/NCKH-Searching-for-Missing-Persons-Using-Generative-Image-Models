@@ -34,28 +34,22 @@ GUIDANCE_SCALE_DEFAULT = 7.5
 MAX_ATTN_RESOLUTION = 32 * 32
 
 
-class CrossAttentionCapture:
-    """Bọc AttnProcessor tùy chỉnh, gắn vào TẤT CẢ layer cross-attention (attn2) của UNet để
-    có thể chụp lại attention map (softmax(QK^T)) trong 1 lần forward chỉ định, lưu về CPU.
-    Chỉ can thiệp cross-attention (attn2), giữ nguyên self-attention (attn1) - đúng yêu cầu
-    spec "chỉ can thiệp cross-attention".
+class DualAttentionCapture:
+    """Bọc AttnProcessor tùy chỉnh, gắn vào TẤT CẢ layer attention của UNet để
+    bắt đồng thời cả Self-Attention (attn1) và Cross-Attention (attn2).
+    Lọc bỏ layer có độ phân giải không gian cao nhất (tránh khóa kết cấu bề mặt vi mô)."""
 
-    Lưu ý: mô phỏng lại đúng logic của AttnProcessor mặc định trong diffusers (to_q/to_k/to_v +
-    get_attention_scores), có thể cần chỉnh lại nếu version diffusers cài đặt khác API.
-    """
-
-    def __init__(self, unet: UNet2DConditionModel):
-        """Lưu tham chiếu UNet và các AttnProcessor gốc (để khôi phục lại sau khi dùng xong)."""
+    def __init__(self, unet: UNet2DConditionModel, max_attn_resolution: int = 16 * 16):
         self.unet = unet
         self._orig_processors = unet.attn_processors
-        self.captured: Dict[str, torch.Tensor] = {}
+        self.max_attn_resolution = max_attn_resolution
+        self.captured_self: Dict[str, torch.Tensor] = {}
+        self.captured_cross: Dict[str, torch.Tensor] = {}
         self.enabled = False
 
     def _build_processor(self, name: str):
-        """Tạo 1 AttnProcessor thay thế cho layer `name`: tính attention y hệt AttnProcessor
-        mặc định của diffusers, chèn thêm bước chụp attention_probs khi self.enabled=True và
-        độ phân giải <= 32x32."""
         capture = self
+        is_cross = name.endswith("attn2.processor")
 
         class _CapturingProcessor:
             def __call__(self, attn, hidden_states, encoder_hidden_states=None, attention_mask=None, **kwargs):
@@ -70,8 +64,11 @@ class CrossAttentionCapture:
 
                 attention_probs = attn.get_attention_scores(query, key, attention_mask)
 
-                if capture.enabled and attention_probs.shape[1] <= MAX_ATTN_RESOLUTION:
-                    capture.captured[name] = attention_probs.detach().cpu()
+                if capture.enabled and attention_probs.shape[1] <= capture.max_attn_resolution:
+                    if is_cross:
+                        capture.captured_cross[name] = attention_probs.detach().cpu()
+                    else:
+                        capture.captured_self[name] = attention_probs.detach().cpu()
 
                 hidden_states = torch.bmm(attention_probs, value)
                 hidden_states = attn.batch_to_head_dim(hidden_states)
@@ -82,30 +79,20 @@ class CrossAttentionCapture:
         return _CapturingProcessor()
 
     def register(self) -> None:
-        """Gắn processor tùy chỉnh vào riêng các layer cross-attention (tên kết thúc bằng
-        'attn2.processor'), giữ nguyên processor gốc cho self-attention (attn1)."""
-        new_processors = {}
-        for name in self.unet.attn_processors.keys():
-            if name.endswith("attn2.processor"):
-                new_processors[name] = self._build_processor(name)
-            else:
-                new_processors[name] = self._orig_processors[name]
+        new_processors = {name: self._build_processor(name) for name in self.unet.attn_processors.keys()}
         self.unet.set_attn_processor(new_processors)
 
     def restore(self) -> None:
-        """Khôi phục lại AttnProcessor gốc của UNet (gọi trong finally, sau khi dùng xong)."""
         self.unet.set_attn_processor(self._orig_processors)
 
     def capture_step(self, forward_fn):
-        """Bật cờ enabled, chạy forward_fn() (không tính gradient - thường là 1 lần gọi UNet
-        với nhánh P_alpha), tắt cờ enabled, trả về (dict attention map chụp được trong lần
-        forward này, kết quả trả về của forward_fn)."""
-        self.captured = {}
+        self.captured_self = {}
+        self.captured_cross = {}
         self.enabled = True
         with torch.no_grad():
             result = forward_fn()
         self.enabled = False
-        return dict(self.captured), result
+        return dict(self.captured_self), dict(self.captured_cross), result
 
 
 class NullTextInverter:
@@ -142,6 +129,9 @@ class NullTextInverter:
         self.early_stop_epsilon = early_stop_epsilon
         self.image_size = image_size
         self.debug_check_nan = debug_check_nan
+
+        # Ngưỡng bỏ layer chi tiết nhất: 16x16 khi image_size=256, 32x32 khi image_size=512
+        self.max_attn_resolution = (self.image_size // 16) ** 2
 
         self.vae = None
         self.unet = None
@@ -185,7 +175,7 @@ class NullTextInverter:
         phân phối, để đảm bảo deterministic - cần thiết cho DDIM inversion)."""
         transform = transforms.Compose(
             [
-                transforms.Resize((self.image_size, self.image_size)),
+                transforms.Resize((self.image_size, self.image_size), interpolation=transforms.InterpolationMode.BICUBIC),
                 transforms.ToTensor(),
                 transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
             ]
@@ -265,33 +255,23 @@ class NullTextInverter:
         pivot_latents: List[torch.Tensor],
         uncond_embedding: torch.Tensor,
         cond_embedding: torch.Tensor,
-        attn_capture: CrossAttentionCapture,
-    ) -> Tuple[List[torch.Tensor], Dict[int, Dict[str, torch.Tensor]]]:
-        """Bước B: đi từ t=T về t=1. Với từng timestep:
-          1. Warm-start null_t từ giá trị null_{t+1} đã tối ưu ở bước trước (không reset về
-             vector rỗng mỗi lần).
-          2. Tối ưu Adam tối đa num_inner_steps vòng (lr giảm dần 1e-2*(1-i/100)), early-stop
-             khi loss < epsilon + i*2e-5. Loss = MSE giữa latent CFG dự đoán và latent pivot
-             (Bước A) ở t-1.
-          3. Sau khi null_t hội tụ, chạy lại 1 bước CFG THẬT (không gradient) để cập nhật
-             latent_cur cho bước kế tiếp, ĐỒNG THỜI chụp attention map của nhánh P_alpha qua
-             attn_capture -> M_t_alpha[t].
-
-        Trả về (list null_t theo đúng thứ tự duyệt, dict M_t_alpha theo timestep)."""
+        attn_capture: DualAttentionCapture,
+    ) -> Tuple[List[torch.Tensor], Tuple[Dict[int, Dict[str, torch.Tensor]], Dict[int, Dict[str, torch.Tensor]]]]:
+        """Bước B: đi từ t=T về t=1, tối ưu null_t và bắt đồng thời cả self và cross attention maps."""
         uncond_embeddings = uncond_embedding.clone()
         null_embeddings_list: List[torch.Tensor] = []
-        attention_maps: Dict[int, Dict[str, torch.Tensor]] = {}
+        self_attention_maps: Dict[int, Dict[str, torch.Tensor]] = {}
+        cross_attention_maps: Dict[int, Dict[str, torch.Tensor]] = {}
 
         latent_cur = pivot_latents[-1]  # z_T*
         timesteps = self.scheduler.timesteps
 
         for i in range(self.num_inference_steps):
-            # FIX (phat hien qua debug thuc te tren Colab T4): giu uncond_embeddings o FP32
-            # trong luc Adam toi uu - Adam eps=1e-8 mac dinh bi lam tron ve 0 trong fp16
-            # (sqrt(v)+eps underflow), gay NaN ngay tu buoc dau tien optimizer.step(). Chi cast
-            # ve fp16 (.half()) dung luc dua vao UNet forward (UNet van chay fp16 binh thuong).
+            # Giữ uncond_embeddings ở FP32 trong lúc Adam tối ưu
             uncond_embeddings = uncond_embeddings.clone().detach().float().requires_grad_(True)
-            optimizer = Adam([uncond_embeddings], lr=1e-2 * (1.0 - i / 100.0))
+            # Lịch trình LR chuẩn kaggle_3: giữ 1e-2 cho 25 bước đầu, giảm dần về sau
+            lr_scale = 1.0 if i < 25 else max(0.4, 1.0 - (i - 25) / 35.0)
+            optimizer = Adam([uncond_embeddings], lr=1e-2 * lr_scale)
             latent_prev = pivot_latents[len(pivot_latents) - i - 2]  # z_{t-1}*
             t = timesteps[i]
 
@@ -308,22 +288,23 @@ class NullTextInverter:
                 loss.backward()
                 optimizer.step()
 
-                if loss.item() < self.early_stop_epsilon + i * 2e-5:
+                if loss.item() < self.early_stop_epsilon:
                     break
 
-            # Luu lai dang fp16 - dung dinh dang UNet mong doi khi Module 3 dung lai null_t nay.
+            # Lưu lại dạng fp16
             null_embeddings_list.append(uncond_embeddings[:1].detach().half())
             check_nan(null_embeddings_list[-1], f"null_embeddings[t={int(t)}]", self.debug_check_nan)
 
             with torch.no_grad():
                 noise_pred_uncond_final = self._predict_noise(latent_cur, t, uncond_embeddings.half())
-            attn_maps_t, noise_pred_cond_final = attn_capture.capture_step(
+            s_maps, c_maps, noise_pred_cond_final = attn_capture.capture_step(
                 lambda: self._predict_noise(latent_cur, t, cond_embedding)
             )
-            attention_maps[int(t)] = attn_maps_t
+            self_attention_maps[int(t)] = s_maps
+            cross_attention_maps[int(t)] = c_maps
             if self.debug_check_nan:
-                for layer_name, amap in attn_maps_t.items():
-                    check_nan(amap, f"attention_maps[t={int(t)}][{layer_name}]", self.debug_check_nan)
+                for layer_name, amap in c_maps.items():
+                    check_nan(amap, f"cross_maps[t={int(t)}][{layer_name}]", self.debug_check_nan)
 
             with torch.no_grad():
                 noise_pred = noise_pred_uncond_final + self.guidance_scale * (
@@ -333,38 +314,47 @@ class NullTextInverter:
 
             print(f"[NullTextInverter] t={int(t)} ({i + 1}/{self.num_inference_steps}) loss={loss.item():.6f}")
 
-        return null_embeddings_list, attention_maps
+        return null_embeddings_list, (self_attention_maps, cross_attention_maps)
 
     def invert(
         self, image_path: str, initial_age: int, gender_word: str
-    ) -> Tuple[torch.Tensor, List[torch.Tensor], Dict[int, Dict[str, torch.Tensor]]]:
+    ) -> Tuple[torch.Tensor, List[torch.Tensor], Tuple[Dict[int, Dict[str, torch.Tensor]], Dict[int, Dict[str, torch.Tensor]]]]:
         """Hàm chính Module 2: build P_alpha từ (initial_age, gender_word), chạy DDIM inversion
-        (Bước A) rồi Null-text optimization (Bước B). Trả về (z_T, list null_t, dict M_t_alpha)
+        (Bước A) rồi Null-text optimization (Bước B). Trả về (z_T, list null_t, (self_maps, cross_maps))
         - dùng làm đầu vào trực tiếp cho Module 3 (Editing)."""
         if self.unet is None:
             self._load_models()
 
-        p_alpha = build_prompt_alpha(initial_age, gender_word)
-        uncond_embedding = self._encode_text("")
-        cond_embedding = self._encode_text(p_alpha)
+        original_inner_steps = self.num_inner_steps
+        if initial_age < 10:
+            self.num_inner_steps = max(self.num_inner_steps, 20)
+            print(f"[NullTextInverter] initial_age={initial_age} < 10 -> child-adaptive num_inner_steps={self.num_inner_steps}")
 
-        z0 = self._load_image_latent(image_path)
-        check_nan(z0, "z0", self.debug_check_nan)
-
-        pivot_latents = self._ddim_inversion(z0, cond_embedding)
-        if self.debug_check_nan:
-            for i, lat in enumerate(pivot_latents):
-                if check_nan(lat, f"pivot_latents[{i}]", True):
-                    break  # chi bao NaN dau tien, tranh spam log cho cac buoc sau do
-
-        attn_capture = CrossAttentionCapture(self.unet)
-        attn_capture.register()
         try:
-            null_embeddings_list, attention_maps = self._null_text_optimization(
-                pivot_latents, uncond_embedding, cond_embedding, attn_capture
-            )
-        finally:
-            attn_capture.restore()
+            p_alpha = build_prompt_alpha(initial_age, gender_word)
+            uncond_embedding = self._encode_text("")
+            cond_embedding = self._encode_text(p_alpha)
 
-        z_T = pivot_latents[-1]
-        return z_T, null_embeddings_list, attention_maps
+            z0 = self._load_image_latent(image_path)
+            check_nan(z0, "z0", self.debug_check_nan)
+
+            pivot_latents = self._ddim_inversion(z0, cond_embedding)
+            if self.debug_check_nan:
+                for i, lat in enumerate(pivot_latents):
+                    if check_nan(lat, f"pivot_latents[{i}]", True):
+                        break
+
+            attn_capture = DualAttentionCapture(self.unet, max_attn_resolution=self.max_attn_resolution)
+            attn_capture.register()
+            try:
+                null_embeddings_list, (self_maps, cross_maps) = self._null_text_optimization(
+                    pivot_latents, uncond_embedding, cond_embedding, attn_capture
+                )
+            finally:
+                attn_capture.restore()
+
+            z_T = pivot_latents[-1]
+            return z_T, null_embeddings_list, (self_maps, cross_maps)
+        finally:
+            self.num_inner_steps = original_inner_steps
+

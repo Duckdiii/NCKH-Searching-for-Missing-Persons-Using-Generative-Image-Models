@@ -24,7 +24,11 @@ export const SearchPage: React.FC = () => {
     try {
       await uploadImage(file);
     } catch (err: any) {
-      const msg = err.response?.data?.detail || 'Không thể xử lý ảnh tải lên.';
+      console.error(err);
+      const isNetworkError = !err.response || err.code === 'ERR_NETWORK';
+      const msg = isNetworkError
+        ? 'Không thể kết nối đến Backend API server (Port 8000). Vui lòng đảm bảo bạn đã khởi động backend bằng lệnh: python -m backend.api.main'
+        : (err.response?.data?.detail || 'Không thể xử lý ảnh tải lên.');
       setUploadError(msg);
     } finally {
       setIsUploading(false);

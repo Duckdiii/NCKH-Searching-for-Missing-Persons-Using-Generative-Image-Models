@@ -155,7 +155,8 @@ def run_pipeline_job(
             z_T,
             null_emb,
             attn,
-            session.gender_word
+            session.gender_word,
+            initial_age=session.initial_age
         )
 
         # Stage 4: Embedding + FAISS Search

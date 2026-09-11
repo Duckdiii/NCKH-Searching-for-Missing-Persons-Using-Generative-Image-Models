@@ -54,3 +54,5 @@ def build_prompt_tau(target_age: int, gender_word: str) -> str:
     dùng trong Module 3 (Editing). Cùng công thức với P_alpha, tách hàm riêng cho rõ ngữ nghĩa
     sử dụng (P_alpha ứng với Initial Age, P_tau ứng với target age cần sinh ảnh)."""
     return build_prompt_alpha(target_age, gender_word)
+
+

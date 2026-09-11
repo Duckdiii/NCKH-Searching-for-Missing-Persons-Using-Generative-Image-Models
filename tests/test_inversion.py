@@ -34,12 +34,14 @@ def test_invert_returns_expected_shapes_and_lengths():
         num_inner_steps=2,
     )
 
-    z_T, null_embeddings, attention_maps = inverter.invert(
+    z_T, null_embeddings, (self_maps, cross_maps) = inverter.invert(
         image_path=_sample_image_path(), initial_age=30, gender_word="woman"
     )
 
     assert z_T.shape == (1, 4, 32, 32)
     assert len(null_embeddings) == 5
     assert all(emb.shape[-2:] == (77, 768) for emb in null_embeddings)
-    assert len(attention_maps) == 5
-    assert all(len(layer_maps) > 0 for layer_maps in attention_maps.values())
+    assert len(self_maps) == 5
+    assert len(cross_maps) == 5
+    assert all(len(layer_maps) > 0 for layer_maps in self_maps.values())
+    assert all(len(layer_maps) > 0 for layer_maps in cross_maps.values())

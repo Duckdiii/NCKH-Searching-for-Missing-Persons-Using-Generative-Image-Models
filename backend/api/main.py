@@ -49,7 +49,7 @@ def run_server():
     if port_env and port_env.isdigit():
         port = int(port_env)
     else:
-        port = get_free_port()
+        port = 8000
 
     # Dòng đầu tiên in ra stdout để Tauri Rust runner đọc được port
     print(f"PORT:{port}", flush=True)

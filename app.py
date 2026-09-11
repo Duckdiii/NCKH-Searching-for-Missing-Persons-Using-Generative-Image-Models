@@ -198,7 +198,7 @@ def main_ui() -> None:
 
         with st.spinner("Đang chạy Module 3 (Editing)..."):
             edited_images = pipeline.run_editing(
-                config, ckpt_dir, z_T, null_embeddings, attention_maps, gender_word
+                config, ckpt_dir, z_T, null_embeddings, attention_maps, gender_word, initial_age=initial_age
             )
 
         with st.spinner("Đang chạy Module 4+5 (Embedding + FAISS Search)..."):

@@ -31,6 +31,7 @@ import cv2
 import pandas as pd
 import torch
 import yaml
+from typing import Optional
 
 from src.fading.editing import Editor
 from src.fading.inversion import NullTextInverter
@@ -40,6 +41,7 @@ from src.search.ensemble import ensemble_search_results
 from src.search.faiss_index import build_index, search
 from src.search.rejection import apply_rejection_threshold
 from src.utils.age_estimator import AgeEstimator
+from src.utils.face_enhancement import preprocess_face_image
 from src.utils.ffhq_align import align_to_ffhq
 from src.utils.prompts import age_group_to_age, gender_to_word
 
@@ -191,13 +193,16 @@ def run_alignment(config: dict, embedder: FaceEmbedder, image_path: str) -> str:
 
     Luu anh da align ra config["paths"]["output_dir"]/aligned_input.png (ghi de moi lan goi -
     chi la file trung gian, khong phai output can giu lau dai) va tra ve duong dan nay."""
-    faces = embedder.detect_faces(image_path)
-    if len(faces) == 0:
-        raise ValueError(f"Align that bai: khong phat hien duoc khuon mat nao trong {image_path}")
-
     image_bgr = cv2.imread(image_path)
     if image_bgr is None:
         raise ValueError(f"Khong doc duoc anh: {image_path}")
+
+    # Tiền xử lý theo chuẩn Kaggle 3: Adaptive Padding + Shades of Gray WB + CodeFormer
+    image_bgr, _ = preprocess_face_image(image_bgr, embedder=embedder)
+
+    faces = embedder.detect_faces(image_bgr)
+    if len(faces) == 0:
+        raise ValueError(f"Align that bai: khong phat hien duoc khuon mat nao trong {image_path}")
 
     aligned = align_to_ffhq(image_bgr, faces[0].kps, output_size=256)
 
@@ -227,7 +232,15 @@ def run_inversion(config: dict, ckpt_dir: str, test_image_path: str, initial_age
     return z_T, null_embeddings, attention_maps
 
 
-def run_editing(config: dict, ckpt_dir: str, z_T, null_embeddings, attention_maps, gender_word: str) -> dict:
+def run_editing(
+    config: dict,
+    ckpt_dir: str,
+    z_T,
+    null_embeddings,
+    attention_maps,
+    gender_word: str,
+    initial_age: Optional[int] = None,
+) -> dict:
     """Module 3: sinh ảnh PNG cho từng TARGET_AGES. num_inference_steps LUÔN lấy từ
     config["inversion"] (không phải config["editing"]) để đảm bảo khớp tuyệt đối với Module 2 -
     xem lý do trong comment của configs/config.yaml."""
@@ -238,10 +251,18 @@ def run_editing(config: dict, ckpt_dir: str, z_T, null_embeddings, attention_map
         num_inference_steps=config["inversion"]["num_inference_steps"],
         guidance_scale=config["editing"]["guidance_scale"],
         attention_control_ratio=config["editing"]["attention_control_ratio"],
+        use_local_blend=config["editing"].get("use_local_blend", True),
+        local_blend_threshold=config["editing"].get("local_blend_threshold", 0.3),
         debug_check_nan=config["debug"]["check_nan"],
     )
     results = editor.edit(
-        z_T, null_embeddings, attention_maps, TARGET_AGES, gender_word, config["paths"]["output_dir"]
+        z_T,
+        null_embeddings,
+        attention_maps,
+        TARGET_AGES,
+        gender_word,
+        config["paths"]["output_dir"],
+        initial_age=initial_age,
     )
 
     del editor
@@ -343,7 +364,9 @@ def main() -> None:
     z_T, null_embeddings, attention_maps = run_inversion(
         config, ckpt_dir, aligned_image_path, initial_age, gender_word
     )
-    edited_images = run_editing(config, ckpt_dir, z_T, null_embeddings, attention_maps, gender_word)
+    edited_images = run_editing(
+        config, ckpt_dir, z_T, null_embeddings, attention_maps, gender_word, initial_age=initial_age
+    )
     run_embedding_and_search(config, edited_images)
 
 

@@ -1,49 +1,79 @@
-# Python
+# ==============================================================================
+# 1. PYTHON & MÔI TRƯỜNG ẢO
+# ==============================================================================
 __pycache__/
 *.py[cod]
+*$py.class
 *.pyc
 .pytest_cache/
-
-# Virtual env
 venv/
 .venv/
 env/
+ENV/
 
-# Checkpoint / model weights (qua lon, tai rieng theo huong dan trong README)
+# ==============================================================================
+# 2. CHECKPOINTS & MODEL WEIGHTS (Quá lớn, tải riêng theo README)
+# ==============================================================================
 checkpoints/*
 !checkpoints/.gitkeep
+*.pt
+*.pth
+*.tar
+*.tar.gz
+*.bin
+*.safetensors
+*.onnx
 
-# Dataset that (FFHQ-Aging, FG-NET, gallery test) - KHONG commit anh that len GitHub,
-# chi giu lai script chuan bi du lieu (check_data*.py)
+# ==============================================================================
+# 3. DATASETS (FFHQ-Aging, FG-NET, Gallery Test)
+# ==============================================================================
+data/test_gallery/
 data/gallery_test/
 data/FGNET*/
 data/ffhq*/
 data/*.zip
+data/*.tar*
 
-# Output sinh ra khi chay pipeline (anh edited, log chan doan, upload tam cua app.py)
+# ==============================================================================
+# 4. OUTPUTS (Ảnh đã sinh, ảnh upload, kết quả đo đạc)
+# ==============================================================================
 outputs/*
 !outputs/.gitkeep
 outputs/app_uploads/*
 !outputs/app_uploads/.gitkeep
 outputs/jobs/*
 !outputs/jobs/.gitkeep
+outputs/test_*/
 
-# Desktop App (Node / React / Tauri)
+# ==============================================================================
+# 5. SCRATCH & FILE NHÁP TẠM THỜI
+# ==============================================================================
+scratch/
+scratch_*.py
+*.patch
+diff_*.patch
+*.log
+
+# ==============================================================================
+# 6. DESKTOP APP (Node / Vite / Tauri / Rust)
+# ==============================================================================
 desktop/node_modules/
 desktop/dist/
 desktop/.vite/
 desktop/src-tauri/target/
-
-# PyInstaller build cache
 build/
+dist/
 *.egg-info/
 
-# Streamlit secrets (KHONG commit token/API key neu co)
+# ==============================================================================
+# 7. SECRETS, IDE & HỆ ĐIỀU HÀNH
+# ==============================================================================
+.env
+.env.*
 .streamlit/secrets.toml
-
-# Editor / OS
 .vscode/
 .idea/
 .claude/
 .DS_Store
 Thumbs.db
+desktop.ini

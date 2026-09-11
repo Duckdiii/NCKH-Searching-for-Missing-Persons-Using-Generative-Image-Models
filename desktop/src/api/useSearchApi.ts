@@ -18,6 +18,7 @@ export function useSearchApi() {
       return res.data;
     } catch (err) {
       console.error('Failed to check health:', err);
+      store.setCheckpoints(false, ['Không thể kết nối đến Backend API server (Port 8000). Hãy chạy lệnh: python -m backend.api.main']);
       store.setIsCheckingHealth(false);
       return { ready: false, missing: ['Không kết nối được backend'] };
     }

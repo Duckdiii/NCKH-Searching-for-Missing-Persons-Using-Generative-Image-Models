@@ -47,6 +47,8 @@ inversion:
 editing:
   guidance_scale: 7.5
   attention_control_ratio: 0.8  # t_M / T - tỷ lệ bước đầu áp dụng attention injection
+  use_local_blend: true         # Cơ chế LocalBlend (Hertz et al.) bảo toàn nền và áo
+  local_blend_threshold: 0.3    # Ngưỡng nhị phân hóa mặt nạ attention
 
 # Module 4 - InsightFace Embedding
 embedding:
