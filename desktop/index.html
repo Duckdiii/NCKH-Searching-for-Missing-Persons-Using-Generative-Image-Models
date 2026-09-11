@@ -8,8 +8,27 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'bg-primary': '#12161C',
+              'bg-surface': '#1B2129',
+              'text-primary': '#E8E6E0',
+              'accent-primary': '#C97B4A',
+              'accent-trust': '#4A8FA0',
+              'accent-warning': '#C9A24A',
+              'accent-error': '#B8564A',
+              'border-subtle': '#262E38',
+              'border-card': '#2E3844',
+            }
+          }
+        }
+      }
+    </script>
   </head>
-  <body class="bg-slate-900 text-slate-100 antialiased min-h-screen">
+  <body class="bg-[#12161C] text-[#E8E6E0] antialiased min-h-screen">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

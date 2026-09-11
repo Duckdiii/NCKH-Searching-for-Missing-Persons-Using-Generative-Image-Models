@@ -50,26 +50,26 @@ export const ProgressStages: React.FC = () => {
   };
 
   return (
-    <div className="bg-slate-800/90 border border-slate-700 rounded-xl p-6 shadow-2xl space-y-6">
-      <div className="flex items-center justify-between border-b border-slate-700 pb-4">
+    <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg space-y-4">
+      <div className="flex items-center justify-between border-b border-[#262E38] pb-3">
         <div>
-          <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-            {jobStatus === 'running' && <Loader2 className="w-5 h-5 text-indigo-400 animate-spin" />}
-            {jobStatus === 'done' && <Check className="w-5 h-5 text-emerald-400" />}
-            {jobStatus === 'error' && <AlertCircle className="w-5 h-5 text-rose-400" />}
+          <h3 className="text-base font-bold text-[#E8E6E0] flex items-center gap-2">
+            {jobStatus === 'running' && <Loader2 className="w-5 h-5 text-[#C97B4A] animate-spin" />}
+            {jobStatus === 'done' && <Check className="w-5 h-5 text-[#4A8FA0]" />}
+            {jobStatus === 'error' && <AlertCircle className="w-5 h-5 text-[#B8564A]" />}
             <span>
               {jobStatus === 'running' && 'Pipeline đang thực thi trên GPU...'}
               {jobStatus === 'done' && 'Pipeline đã hoàn tất thành công!'}
               {jobStatus === 'error' && 'Đã xảy ra lỗi trong quá trình thực thi'}
             </span>
           </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-[#8E98A5] mt-0.5">
             Quá trình xử lý Null-text Inversion và Editing có thể kéo dài vài phút tùy GPU.
           </p>
         </div>
 
         {jobStatus === 'running' && (
-          <div className="flex items-center gap-1.5 text-xs text-indigo-300 font-mono bg-indigo-950/60 px-3 py-1.5 rounded-full border border-indigo-500/30">
+          <div className="flex items-center gap-1.5 text-xs text-[#C97B4A] font-mono bg-[#12161C] px-3 py-1.5 rounded-full border border-[#262E38]">
             <Clock className="w-3.5 h-3.5" />
             <span>Thời gian: {formatTime(elapsed)}</span>
           </div>
@@ -77,14 +77,14 @@ export const ProgressStages: React.FC = () => {
       </div>
 
       {jobStatus === 'error' && jobError && (
-        <div className="bg-rose-950/50 border border-rose-500/50 p-4 rounded-lg text-rose-200 text-sm">
-          <p className="font-semibold mb-1">Chi tiết lỗi:</p>
+        <div className="bg-[#B8564A]/15 border border-[#B8564A]/40 p-3.5 rounded-lg text-[#E8E6E0] text-xs">
+          <p className="font-semibold mb-1 text-[#B8564A]">Chi tiết lỗi:</p>
           <code className="text-xs font-mono">{jobError}</code>
         </div>
       )}
 
       {/* Stepper danh sách 4 giai đoạn */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         {STAGES.map((s, idx) => {
           const isDone = jobStatus === 'done' || currentIdx > idx;
           const isCurrent = jobStatus === 'running' && currentIdx === idx;
@@ -93,27 +93,27 @@ export const ProgressStages: React.FC = () => {
           return (
             <div
               key={s.id}
-              className={`p-4 rounded-xl border transition-all duration-300 ${
+              className={`p-3 rounded-lg border transition-all duration-200 ${
                 isDone
-                  ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-200'
+                  ? 'bg-[#4A8FA0]/15 border-[#4A8FA0]/40 text-[#E8E6E0]'
                   : isCurrent
-                  ? 'bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10 text-white'
-                  : 'bg-slate-900/40 border-slate-700/60 text-slate-400'
+                  ? 'bg-[#C97B4A]/15 border-[#C97B4A] text-[#E8E6E0]'
+                  : 'bg-[#12161C] border-[#262E38] text-[#8E98A5]'
               }`}
             >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider">
                   Giai đoạn {idx + 1}
                 </span>
-                <div className="w-6 h-6 rounded-full flex items-center justify-center">
-                  {isDone && <Check className="w-4 h-4 text-emerald-400" />}
-                  {isCurrent && <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />}
-                  {isPending && <span className="text-xs text-slate-500">{idx + 1}</span>}
+                <div className="w-5 h-5 rounded-full flex items-center justify-center">
+                  {isDone && <Check className="w-4 h-4 text-[#4A8FA0]" />}
+                  {isCurrent && <Loader2 className="w-4 h-4 text-[#C97B4A] animate-spin" />}
+                  {isPending && <span className="text-[11px] text-[#8E98A5]">{idx + 1}</span>}
                 </div>
               </div>
 
-              <p className="font-semibold text-sm mb-1 text-slate-100">{s.title}</p>
-              <p className="text-xs text-slate-400 line-clamp-2">{s.desc}</p>
+              <p className="font-semibold text-xs mb-1 text-[#E8E6E0]">{s.title}</p>
+              <p className="text-[11px] text-[#8E98A5] line-clamp-2 leading-relaxed">{s.desc}</p>
             </div>
           );
         })}

@@ -15,15 +15,15 @@ export const App: React.FC = () => {
 
   if (isCheckingHealth) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-200">
-        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-3" />
-        <p className="text-sm font-medium">Đang kiểm tra môi trường và trọng số...</p>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#12161C] text-[#E8E6E0]">
+        <Loader2 className="w-8 h-8 text-[#C97B4A] animate-spin mb-3" />
+        <p className="text-xs font-medium text-[#8E98A5]">Đang kiểm tra môi trường và trọng số...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-[#12161C] text-[#E8E6E0] selection:bg-[#C97B4A] selection:text-white">
       {!checkpointReady ? <FirstRunSetup /> : <SearchPage />}
     </div>
   );

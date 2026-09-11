@@ -28,9 +28,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount outputs static directory
+# Mount outputs and data static directories
 os.makedirs("outputs", exist_ok=True)
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
+if os.path.exists("data"):
+    app.mount("/data", StaticFiles(directory="data"), name="data")
 
 # Include API routers
 app.include_router(health.router)

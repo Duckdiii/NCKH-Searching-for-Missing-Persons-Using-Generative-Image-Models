@@ -1,8 +1,8 @@
 """
 Script khởi động trọn gói ứng dụng Desktop từ CLI của VS Code:
 1. Khởi động Backend FastAPI (Port 8000).
-2. Đợi Backend sẵn sàng qua health check.
-3. Khởi động Frontend và tự động mở Cửa sổ Ứng dụng độc lập (App Window - không thanh URL, không tab web).
+2. Đợi Backend sẵn sàng qua health check (timeout 60s, hiển thị tiến trình).
+3. Khởi động Frontend và tự động mở Cửa sổ Ứng dụng độc lập (App Window - không URL bar, không tab web).
 4. Tự động dọn dẹp và tắt sạch tiến trình con khi nhấn Ctrl+C, bảo vệ VRAM GPU.
 """
 
@@ -12,6 +12,8 @@ import time
 import subprocess
 import signal
 import webbrowser
+import urllib.request
+import json
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -24,20 +26,38 @@ PYTHON_EXE = sys.executable
 BACKEND_PORT = 8000
 FRONTEND_PORT = 1420
 APP_URL = f"http://localhost:{FRONTEND_PORT}"
+LOG_DIR = os.path.join(REPO_DIR, "outputs")
+os.makedirs(LOG_DIR, exist_ok=True)
+BACKEND_LOG_PATH = os.path.join(LOG_DIR, "backend_startup.log")
 
 
-def check_backend_ready(timeout_sec=20) -> bool:
-    import urllib.request
-    import json
+def is_backend_alive() -> bool:
     health_url = f"http://127.0.0.1:{BACKEND_PORT}/api/health"
+    try:
+        with urllib.request.urlopen(health_url, timeout=1) as resp:
+            if resp.status == 200:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def wait_for_backend(proc, timeout_sec=60) -> bool:
     start_t = time.time()
     while time.time() - start_t < timeout_sec:
-        try:
-            with urllib.request.urlopen(health_url, timeout=1) as resp:
-                if resp.status == 200:
-                    return True
-        except Exception:
-            time.sleep(0.5)
+        # Kiểm tra xem tiến trình backend có bị crash sớm không
+        if proc and proc.poll() is not None:
+            return False
+
+        if is_backend_alive():
+            elapsed = time.time() - start_t
+            print(f"\r  ✅ Backend API server đã sẵn sàng! ({elapsed:.1f}s)                ", flush=True)
+            return True
+
+        elapsed = int(time.time() - start_t)
+        print(f"\r  • Đang nạp mô hình & khởi động server AI... ({elapsed}s/{timeout_sec}s)", end="", flush=True)
+        time.sleep(1)
+
     return False
 
 
@@ -69,30 +89,44 @@ def main():
     print("🚀 KHỞI ĐỘNG HỆ THỐNG MISSING PERSON SEARCH (FADING DESKTOP)")
     print("=" * 70)
 
-    # 1. Khởi động Backend
-    print(f"[1/3] Đang khởi động Backend API server trên cổng {BACKEND_PORT}...")
-    env = os.environ.copy()
-    env["BACKEND_PORT"] = str(BACKEND_PORT)
-    env["PYTHONUNBUFFERED"] = "1"
-    env["PYTHONIOENCODING"] = "utf-8"
-
-    backend_proc = subprocess.Popen(
-        [PYTHON_EXE, "-m", "backend.api.main"],
-        cwd=REPO_DIR,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.STDOUT
-    )
-
+    backend_proc = None
     frontend_proc = None
 
-    try:
-        # Đợi backend
-        if not check_backend_ready():
-            print("❌ Lỗi: Backend không khởi động được trong 20s!")
-            sys.exit(1)
-        print("✅ Backend API server đã sẵn sàng!")
+    # Kiểm tra xem backend đã chạy sẵn từ trước chưa
+    if is_backend_alive():
+        print(f"ℹ️ Backend API server đã đang chạy sẵn trên cổng {BACKEND_PORT}.")
+    else:
+        print(f"[1/3] Đang khởi động Backend API server trên cổng {BACKEND_PORT}...")
+        env = os.environ.copy()
+        env["BACKEND_PORT"] = str(BACKEND_PORT)
+        env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
 
+        log_file = open(BACKEND_LOG_PATH, "w", encoding="utf-8")
+        backend_proc = subprocess.Popen(
+            [PYTHON_EXE, "-m", "backend.api.main"],
+            cwd=REPO_DIR,
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT
+        )
+
+        ready = wait_for_backend(backend_proc, timeout_sec=60)
+        if not ready:
+            print("\n❌ Lỗi: Backend không khởi động được!")
+            if backend_proc and backend_proc.poll() is not None:
+                print(f"  • Tiến trình Python thoát với mã lỗi: {backend_proc.returncode}")
+            print(f"  • Chi tiết log xem tại: {BACKEND_LOG_PATH}")
+            if os.path.exists(BACKEND_LOG_PATH):
+                with open(BACKEND_LOG_PATH, "r", encoding="utf-8") as f:
+                    print("--- [Nội dung log backend] ---")
+                    print(f.read().strip())
+                    print("------------------------------")
+            if backend_proc:
+                backend_proc.kill()
+            sys.exit(1)
+
+    try:
         # 2. Khởi động Frontend Vite
         print(f"[2/3] Đang khởi động giao diện Desktop Frontend...")
         npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"

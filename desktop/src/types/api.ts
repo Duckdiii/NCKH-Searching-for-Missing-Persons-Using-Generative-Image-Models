@@ -50,6 +50,8 @@ export interface JobResult {
   accepted: boolean;
   top_identity: string;
   top_score: number;
+  best_age?: number | null;
+  matched_gallery_image?: string | null;
   error_message?: string | null;
 }
 

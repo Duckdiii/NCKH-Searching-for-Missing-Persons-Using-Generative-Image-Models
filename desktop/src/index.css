@@ -3,27 +3,58 @@
   line-height: 1.5;
   font-weight: 400;
   color-scheme: dark;
+
+  /* 7 CSS Tokens */
+  --bg-primary: #12161C;      /* thay slate-950 */
+  --bg-surface: #1B2129;      /* thay slate-900/800 (card, khối nội dung) */
+  --text-primary: #E8E6E0;    /* thay trắng/slate-100 */
+  --accent-primary: #C97B4A;  /* thay indigo - dùng cho hành động chính, highlight */
+  --accent-trust: #4A8FA0;    /* thay emerald - dùng cho "khớp danh tính", trạng thái thành công */
+  --accent-warning: #C9A24A;  /* thay amber hiện có - giữ nguyên vai trò cảnh báo */
+  --accent-error: #B8564A;    /* đỏ trầm, không dùng đỏ tươi rose-500 mặc định */
+
+  --border-subtle: #262E38;
+  --border-card: #2E3844;
+  --text-muted: #8E98A5;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #020617;
-  color: #f8fafc;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Fallback utilities if tailwind isn't precompiled */
-.bg-slate-950 { background-color: #020617; }
-.bg-slate-900 { background-color: #0f172a; }
-.bg-slate-800 { background-color: #1e293b; }
-.text-slate-100 { color: #f1f5f9; }
-.text-slate-200 { color: #e2e8f0; }
-.text-slate-300 { color: #cbd5e1; }
-.text-slate-400 { color: #94a3b8; }
-.text-slate-500 { color: #64748b; }
-.border-slate-700 { border-color: #334155; }
-.border-slate-800 { border-color: #1e293b; }
+/* Fallback & Custom Utility Classes */
+.bg-primary { background-color: var(--bg-primary); }
+.bg-surface { background-color: var(--bg-surface); }
+.text-main { color: var(--text-primary); }
+.text-muted { color: var(--text-muted); }
+.border-subtle { border-color: var(--border-subtle); }
+.border-card { border-color: var(--border-card); }
+
+/* Compatibility aliases to seamlessly translate legacy slate classes */
+.bg-slate-950 { background-color: var(--bg-primary); }
+.bg-slate-900 { background-color: var(--bg-surface); }
+.bg-slate-800 { background-color: var(--bg-surface); }
+.text-slate-100 { color: var(--text-primary); }
+.text-slate-200 { color: #D8D6D0; }
+.text-slate-300 { color: #B0B5BD; }
+.text-slate-400 { color: var(--text-muted); }
+.text-slate-500 { color: #647080; }
+.border-slate-700 { border-color: var(--border-subtle); }
+.border-slate-800 { border-color: var(--border-subtle); }
+
+/* Flat Button Primary */
+.btn-primary {
+  background-color: var(--accent-primary);
+  color: #FFFFFF;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
 
 /* Custom scrollbars */
 ::-webkit-scrollbar {
@@ -31,12 +62,13 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: var(--bg-primary);
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--border-card);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--text-muted);
 }
+

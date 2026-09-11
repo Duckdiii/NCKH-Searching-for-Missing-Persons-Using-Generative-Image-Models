@@ -38,32 +38,32 @@ export const FaceSelector: React.FC = () => {
   const scaleY = naturalDim && displayDim ? displayDim.h / naturalDim.h : 1;
 
   return (
-    <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-6 shadow-xl">
+    <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
-            <UserCheck className="w-5 h-5 text-indigo-400" />
+          <h3 className="text-base font-semibold text-[#E8E6E0] flex items-center gap-2">
+            <UserCheck className="w-5 h-5 text-[#C97B4A]" />
             {store.faces.length > 1
               ? `Phát hiện ${store.faces.length} khuôn mặt - Vui lòng click chọn người cần tìm`
               : 'Đã phát hiện 1 khuôn mặt'}
           </h3>
-          <p className="text-sm text-slate-400">
+          <p className="text-xs text-[#8E98A5] mt-0.5">
             {store.faces.length > 1
-              ? 'Click trực tiếp vào khung đỏ của khuôn mặt để chọn đối tượng tìm kiếm.'
+              ? 'Click trực tiếp vào khung khuôn mặt để chọn đối tượng tìm kiếm.'
               : 'Hệ thống tự động chọn khuôn mặt duy nhất trong ảnh.'}
           </p>
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6 items-start">
+      <div className="flex flex-col md:flex-row gap-5 items-start">
         {/* Ảnh gốc với SVG Overlay Bounding Boxes */}
-        <div className="relative inline-block border border-slate-700 rounded-lg overflow-hidden max-w-full bg-black/40">
+        <div className="relative inline-block border border-[#262E38] rounded-lg overflow-hidden max-w-full bg-black/40">
           <img
             ref={imgRef}
             src={store.uploadedImageUrl || ''}
             alt="Uploaded"
             onLoad={handleImageLoad}
-            className="max-h-[420px] object-contain block"
+            className="max-h-[380px] object-contain block"
           />
 
           {naturalDim && displayDim && (
@@ -90,10 +90,10 @@ export const FaceSelector: React.FC = () => {
                       y={sy1}
                       width={sw}
                       height={sh}
-                      fill={isSelected ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.15)'}
-                      stroke={isSelected ? '#22c55e' : '#ef4444'}
+                      fill={isSelected ? 'rgba(74, 143, 160, 0.25)' : 'rgba(184, 86, 74, 0.2)'}
+                      stroke={isSelected ? '#4A8FA0' : '#B8564A'}
                       strokeWidth={isSelected ? 3 : 2}
-                      className="transition-all duration-200 group-hover:stroke-yellow-400 group-hover:fill-yellow-400/20"
+                      className="transition-all duration-200 group-hover:stroke-[#C9A24A] group-hover:fill-[#C9A24A]/20"
                     />
                     {/* Badge số thứ tự */}
                     <rect
@@ -101,7 +101,7 @@ export const FaceSelector: React.FC = () => {
                       y={Math.max(0, sy1 - 22)}
                       width={44}
                       height={20}
-                      fill={isSelected ? '#22c55e' : '#ef4444'}
+                      fill={isSelected ? '#4A8FA0' : '#B8564A'}
                       rx={4}
                     />
                     <text
@@ -123,18 +123,18 @@ export const FaceSelector: React.FC = () => {
 
         {/* Cột Preview ảnh mặt đã căn chỉnh FFHQ */}
         {store.croppedPreviewUrl && (
-          <div className="flex-1 bg-slate-900/60 p-4 rounded-lg border border-slate-700/80 flex flex-col items-center">
-            <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2 flex items-center gap-1">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              Mặt đã căn chỉnh FFHQ (256x256)
+          <div className="bg-[#12161C] p-4 rounded-lg border border-[#262E38] flex flex-col items-center">
+            <span className="text-xs uppercase tracking-wider text-[#4A8FA0] font-semibold mb-2 flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-[#4A8FA0]" />
+              Mặt căn chỉnh FFHQ (256x256)
             </span>
             <img
               src={`http://127.0.0.1:${store.backendPort}${store.croppedPreviewUrl}`}
               alt="Cropped Face"
-              className="w-40 h-40 rounded-lg border-2 border-emerald-500 shadow-md object-cover bg-black"
+              className="w-36 h-36 rounded-lg border-2 border-[#4A8FA0] shadow object-cover bg-black"
             />
-            <p className="text-xs text-slate-400 mt-2 text-center">
-              Khuôn mặt #{ (store.selectedFaceIdx ?? 0) + 1 } (Độ tin cậy: {(
+            <p className="text-xs text-[#8E98A5] mt-2 text-center">
+              Khuôn mặt #{(store.selectedFaceIdx ?? 0) + 1} (Tin cậy: {(
                 (store.faces[store.selectedFaceIdx ?? 0]?.det_score || 0) * 100
               ).toFixed(1)}%)
             </p>

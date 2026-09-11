@@ -53,4 +53,6 @@ class JobResult(BaseModel):
     accepted: bool = False
     top_identity: str = ""
     top_score: float = 0.0
+    best_age: Optional[int] = None
+    matched_gallery_image: Optional[str] = None
     error_message: Optional[str] = None

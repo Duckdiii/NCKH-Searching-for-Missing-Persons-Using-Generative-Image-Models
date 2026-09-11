@@ -61,7 +61,9 @@ def set_done(
     final_scores: Dict[str, float],
     accepted: bool,
     top_identity: str,
-    top_score: float
+    top_score: float,
+    best_age: Optional[int] = None,
+    matched_gallery_image: Optional[str] = None
 ) -> None:
     # Convert file paths to HTTP-accessible relative URLs
     # e.g. "outputs/jobs/123/age_30.png" -> "/outputs/jobs/123/age_30.png"
@@ -82,6 +84,8 @@ def set_done(
         "accepted": accepted,
         "top_identity": top_identity,
         "top_score": top_score,
+        "best_age": best_age,
+        "matched_gallery_image": matched_gallery_image,
         "error_message": None
     }
     job = get_job(job_id)
@@ -166,7 +170,38 @@ def run_pipeline_job(
             edited_images
         )
 
-        set_done(job_id, edited_images, final_scores, accepted, top_identity, top_score)
+        # Determine best matching age and copy gallery match image
+        matched_gallery_image = None
+        best_age = None
+        if edited_images:
+            sorted_ages = sorted([int(a) for a in edited_images.keys()])
+            best_age = sorted_ages[len(sorted_ages) // 2] if sorted_ages else None
+
+        active_gallery_dir = job_config.get("paths", {}).get("gallery_test_dir", "data/test_gallery")
+        if top_identity and os.path.exists(active_gallery_dir):
+            for ext in [".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"]:
+                cand = os.path.join(active_gallery_dir, f"{top_identity}{ext}")
+                if os.path.exists(cand):
+                    import shutil
+                    dest = os.path.join(job_output_dir, f"gallery_match_{top_identity}{ext}")
+                    try:
+                        shutil.copyfile(cand, dest)
+                        matched_gallery_image = f"/outputs/jobs/{job_id}/gallery_match_{top_identity}{ext}"
+                    except Exception:
+                        norm = cand.replace("\\", "/")
+                        matched_gallery_image = "/" + norm
+                    break
+
+        set_done(
+            job_id,
+            edited_images,
+            final_scores,
+            accepted,
+            top_identity,
+            top_score,
+            best_age=best_age,
+            matched_gallery_image=matched_gallery_image
+        )
 
     except Exception as e:
         traceback.print_exc()

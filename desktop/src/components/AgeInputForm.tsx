@@ -30,34 +30,46 @@ export const AgeInputForm: React.FC = () => {
   };
 
   return (
-    <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-6 shadow-xl space-y-5">
-      <h3 className="text-lg font-semibold text-slate-100">Thông tin đối tượng tìm kiếm</h3>
+    <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg space-y-4">
+      <h3 className="text-base font-semibold text-[#E8E6E0]">Thông tin đối tượng tìm kiếm</h3>
 
       {/* Chọn giới tính */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-2">
+        <label className="block text-xs font-semibold text-[#8E98A5] mb-2 uppercase tracking-wide">
           Giới tính của người trong ảnh:
         </label>
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-200 bg-slate-900/60 px-4 py-2.5 rounded-lg border border-slate-700 hover:border-indigo-500 transition-colors">
+        <div className="flex gap-3">
+          <label
+            className={`flex-1 flex items-center justify-center gap-2 cursor-pointer text-xs font-medium py-2.5 px-3 rounded-lg border transition-all ${
+              store.genderWord === 'man'
+                ? 'bg-[#12161C] border-[#C97B4A] text-[#E8E6E0]'
+                : 'bg-[#12161C] border-[#262E38] text-[#8E98A5] hover:border-[#2E3844]'
+            }`}
+          >
             <input
               type="radio"
               name="gender"
               value="man"
               checked={store.genderWord === 'man'}
               onChange={() => handleGenderChange('man')}
-              className="text-indigo-600 focus:ring-indigo-500"
+              className="accent-[#C97B4A]"
             />
             <span>Nam (Man / Boy)</span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-200 bg-slate-900/60 px-4 py-2.5 rounded-lg border border-slate-700 hover:border-indigo-500 transition-colors">
+          <label
+            className={`flex-1 flex items-center justify-center gap-2 cursor-pointer text-xs font-medium py-2.5 px-3 rounded-lg border transition-all ${
+              store.genderWord === 'woman'
+                ? 'bg-[#12161C] border-[#C97B4A] text-[#E8E6E0]'
+                : 'bg-[#12161C] border-[#262E38] text-[#8E98A5] hover:border-[#2E3844]'
+            }`}
+          >
             <input
               type="radio"
               name="gender"
               value="woman"
               checked={store.genderWord === 'woman'}
               onChange={() => handleGenderChange('woman')}
-              className="text-indigo-600 focus:ring-indigo-500"
+              className="accent-[#C97B4A]"
             />
             <span>Nữ (Woman / Girl)</span>
           </label>
@@ -66,30 +78,42 @@ export const AgeInputForm: React.FC = () => {
 
       {/* Lựa chọn nguồn tuổi */}
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-2">
-          Bạn có biết chính xác tuổi của người trong ảnh lúc chụp không?
+        <label className="block text-xs font-semibold text-[#8E98A5] mb-2 uppercase tracking-wide">
+          Phương thức xác định tuổi lúc chụp ảnh:
         </label>
-        <div className="flex flex-col gap-2.5">
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-200 bg-slate-900/60 p-3 rounded-lg border border-slate-700 hover:border-indigo-500">
+        <div className="flex flex-col gap-2">
+          <label
+            className={`flex items-center gap-2 cursor-pointer text-xs p-3 rounded-lg border transition-all ${
+              store.ageMode === 'manual'
+                ? 'bg-[#12161C] border-[#C97B4A] text-[#E8E6E0]'
+                : 'bg-[#12161C] border-[#262E38] text-[#8E98A5] hover:border-[#2E3844]'
+            }`}
+          >
             <input
               type="radio"
               name="ageMode"
               value="manual"
               checked={store.ageMode === 'manual'}
               onChange={() => handleModeChange('manual')}
-              className="text-indigo-600 focus:ring-indigo-500"
+              className="accent-[#C97B4A]"
             />
             <span>Có, tôi biết chính xác tuổi (khuyến nghị, độ chính xác cao nhất)</span>
           </label>
 
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-200 bg-slate-900/60 p-3 rounded-lg border border-slate-700 hover:border-indigo-500">
+          <label
+            className={`flex items-center gap-2 cursor-pointer text-xs p-3 rounded-lg border transition-all ${
+              store.ageMode === 'mivolo'
+                ? 'bg-[#12161C] border-[#C97B4A] text-[#E8E6E0]'
+                : 'bg-[#12161C] border-[#262E38] text-[#8E98A5] hover:border-[#2E3844]'
+            }`}
+          >
             <input
               type="radio"
               name="ageMode"
               value="mivolo"
               checked={store.ageMode === 'mivolo'}
               onChange={() => handleModeChange('mivolo')}
-              className="text-indigo-600 focus:ring-indigo-500"
+              className="accent-[#C97B4A]"
             />
             <span>Không, nhờ hệ thống ước tính tự động (MiVOLO AI)</span>
           </label>
@@ -98,41 +122,41 @@ export const AgeInputForm: React.FC = () => {
 
       {/* Nhánh nhập tay */}
       {store.ageMode === 'manual' && (
-        <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-700/60">
-          <label className="block text-sm font-medium text-slate-300 mb-1.5">
+        <div className="bg-[#12161C] p-3.5 rounded-lg border border-[#262E38]">
+          <label className="block text-xs font-medium text-[#8E98A5] mb-1.5">
             Nhập số tuổi lúc chụp ảnh:
           </label>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <input
               type="number"
               min={0}
               max={120}
               value={store.manualAge}
               onChange={handleManualAgeChange}
-              className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white w-28 focus:outline-none focus:border-indigo-500"
+              className="bg-[#1B2129] border border-[#2E3844] rounded-lg px-3 py-1.5 text-[#E8E6E0] w-24 text-sm focus:outline-none focus:border-[#C97B4A]"
             />
-            <span className="text-sm text-slate-400">tuổi</span>
+            <span className="text-xs text-[#8E98A5]">tuổi</span>
           </div>
         </div>
       )}
 
       {/* Nhánh MiVOLO ước tính */}
       {store.ageMode === 'mivolo' && (
-        <div className="bg-indigo-950/30 p-4 rounded-lg border border-indigo-500/30 space-y-2">
+        <div className="bg-[#12161C] p-3.5 rounded-lg border border-[#4A8FA0]/40 space-y-2">
           {store.isEstimatingAge ? (
-            <div className="flex items-center gap-2 text-sm text-indigo-300">
-              <Loader2 className="w-4 h-4 animate-spin" />
+            <div className="flex items-center gap-2 text-xs text-[#4A8FA0]">
+              <Loader2 className="w-4 h-4 animate-spin text-[#4A8FA0]" />
               <span>Đang ước tính tuổi bằng mô hình MiVOLO...</span>
             </div>
           ) : store.initialAge !== null ? (
             <div>
-              <div className="flex items-center gap-2 text-emerald-400 font-medium text-sm">
+              <div className="flex items-center gap-2 text-[#4A8FA0] font-medium text-xs">
                 <Sparkles className="w-4 h-4" />
                 <span>Hệ thống ước tính: khoảng {store.initialAge} tuổi</span>
               </div>
               {store.ageWarningText && (
-                <div className="mt-2 text-xs text-amber-300/90 flex items-start gap-1.5 bg-amber-950/40 p-2.5 rounded border border-amber-500/30">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-400" />
+                <div className="mt-2 text-xs text-[#C9A24A] flex items-start gap-1.5 bg-[#1B2129] p-2.5 rounded border border-[#C9A24A]/40">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-[#C9A24A]" />
                   <span>{store.ageWarningText}</span>
                 </div>
               )}
@@ -143,7 +167,7 @@ export const AgeInputForm: React.FC = () => {
                 store.sessionId &&
                 resolveAge(store.sessionId, 'mivolo', undefined, store.genderWord)
               }
-              className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded"
+              className="text-xs bg-[#C97B4A] hover:brightness-110 text-white px-3.5 py-1.5 rounded-lg font-medium"
             >
               Ước tính tuổi ngay
             </button>
