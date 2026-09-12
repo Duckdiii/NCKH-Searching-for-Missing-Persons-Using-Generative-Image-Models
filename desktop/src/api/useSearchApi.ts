@@ -3,50 +3,67 @@ import { api, getWsUrl } from './client';
 import { useSearchStore } from '../store/useSearchStore';
 import {
   CheckpointHealth,
+  JobHistoryItem,
   ResolveAgeResponse,
   SelectFaceResponse,
   UploadResponse,
 } from '../types/api';
 
 export function useSearchApi() {
-  const store = useSearchStore();
-
   const checkHealth = useCallback(async () => {
+    const s = useSearchStore.getState();
     try {
       const res = await api.get<CheckpointHealth>('/api/health/checkpoints');
-      store.setCheckpoints(res.data.ready, res.data.missing);
+      s.setCheckpoints(res.data.ready, res.data.missing, res.data.checkpoint_name, res.data.app_version);
       return res.data;
     } catch (err) {
       console.error('Failed to check health:', err);
-      store.setCheckpoints(false, ['Không thể kết nối đến Backend API server (Port 8000). Hãy chạy lệnh: python -m backend.api.main']);
-      store.setIsCheckingHealth(false);
+      s.setCheckpoints(false, ['Không thể kết nối đến Backend API server (Port 8000). Hãy chạy lệnh: python -m backend.api.main']);
+      s.setIsCheckingHealth(false);
       return { ready: false, missing: ['Không kết nối được backend'] };
     }
-  }, [store]);
+  }, []);
+
+  const fetchJobsHistory = useCallback(async () => {
+    const s = useSearchStore.getState();
+    try {
+      const res = await api.get<JobHistoryItem[]>('/api/jobs');
+      if (Array.isArray(res.data)) {
+        res.data.forEach((item) => s.addHistoryItem(item));
+      }
+      return res.data;
+    } catch (err) {
+      console.warn('Could not fetch jobs history from backend:', err);
+      return [];
+    }
+  }, []);
 
   const uploadImage = useCallback(async (file: File) => {
+    const s = useSearchStore.getState();
     const formData = new FormData();
     formData.append('file', file);
     const res = await api.post<UploadResponse>('/api/sessions', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     const previewUrl = URL.createObjectURL(file);
-    store.setUploadResult(res.data.session_id, res.data.faces, previewUrl);
+    s.setUploadResult(res.data.session_id, res.data.faces, previewUrl);
     return res.data;
-  }, [store]);
+  }, []);
 
   const selectFace = useCallback(async (sessionId: string, selectedIdx: number) => {
+    const s = useSearchStore.getState();
     const res = await api.post<SelectFaceResponse>(`/api/sessions/${sessionId}/select-face`, {
       selected_idx: selectedIdx,
     });
-    store.setSelectedFace(selectedIdx, res.data.warnings, res.data.cropped_preview_url);
+    s.setSelectedFace(selectedIdx, res.data.warnings, res.data.cropped_preview_url);
     return res.data;
-  }, [store]);
+  }, []);
 
   const resolveAge = useCallback(
     async (sessionId: string, mode: 'manual' | 'mivolo', manualAge?: number, genderWord: 'man' | 'woman' = 'man') => {
+      const s = useSearchStore.getState();
       if (mode === 'mivolo') {
-        store.setIsEstimatingAge(true);
+        s.setIsEstimatingAge(true);
       }
       try {
         const res = await api.post<ResolveAgeResponse>(`/api/sessions/${sessionId}/resolve-age`, {
@@ -54,22 +71,23 @@ export function useSearchApi() {
           manual_age: mode === 'manual' ? manualAge : null,
           gender_word: genderWord,
         });
-        store.setResolvedAge(res.data.initial_age, res.data.warning_text);
+        s.setResolvedAge(res.data.initial_age, res.data.warning_text);
         return res.data;
       } finally {
-        store.setIsEstimatingAge(false);
+        s.setIsEstimatingAge(false);
       }
     },
-    [store]
+    []
   );
 
   const runPipeline = useCallback(async (sessionId: string, galleryDir?: string | null) => {
+    const s = useSearchStore.getState();
     const res = await api.post<{ job_id: string; status: string }>(
       `/api/sessions/${sessionId}/run`,
       { gallery_dir: galleryDir }
     );
     const jobId = res.data.job_id;
-    store.startJob(jobId);
+    s.startJob(jobId);
 
     // Mở WebSocket lắng nghe tiến độ
     const wsUrl = `${getWsUrl()}/api/jobs/${jobId}/ws`;
@@ -79,13 +97,13 @@ export function useSearchApi() {
       try {
         const data = JSON.parse(event.data);
         if (data.status === 'done') {
-          store.updateJobProgress('done', 'complete', data.result || data);
+          s.updateJobProgress('done', 'complete', data.result || data);
           ws.close();
         } else if (data.status === 'error') {
-          store.updateJobProgress('error', 'failed', undefined, data.error_message);
+          s.updateJobProgress('error', 'failed', undefined, data.error_message);
           ws.close();
         } else {
-          store.updateJobProgress('running', data.stage || 'running');
+          s.updateJobProgress('running', data.stage || 'running');
         }
       } catch (err) {
         console.error('Error parsing WS message:', err);
@@ -97,10 +115,11 @@ export function useSearchApi() {
     };
 
     return jobId;
-  }, [store]);
+  }, []);
 
   return {
     checkHealth,
+    fetchJobsHistory,
     uploadImage,
     selectFace,
     resolveAge,

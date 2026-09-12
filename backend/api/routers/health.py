@@ -30,7 +30,13 @@ def check_checkpoints():
     if age_ckpt and not os.path.isfile(age_ckpt):
         missing.append(f"MiVOLO Age model ({age_ckpt})")
 
+    unet_name = os.path.basename(unet_ckpt.rstrip("/\\")) or "specialized_unet"
+    base_model = config.get("base_model", {}).get("pretrained_model_name_or_path", "runwayml/stable-diffusion-v1-5")
+    base_name = base_model.split("/")[-1] if "/" in base_model else base_model
+
     return {
         "ready": len(missing) == 0,
-        "missing": missing
+        "missing": missing,
+        "checkpoint_name": f"{unet_name} ({base_name})",
+        "app_version": "1.0.0"
     }

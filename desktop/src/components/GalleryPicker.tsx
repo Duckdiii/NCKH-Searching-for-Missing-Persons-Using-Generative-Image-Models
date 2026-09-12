@@ -36,10 +36,10 @@ export const GalleryPicker: React.FC = () => {
   };
 
   return (
-    <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg space-y-3">
+    <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-xs space-y-3">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[#E8E6E0] font-semibold text-sm">
-          <FolderCheck className="w-5 h-5 text-[#C97B4A]" />
+        <div className="flex items-center gap-2 text-[#111827] font-semibold text-sm">
+          <FolderCheck className="w-5 h-5 text-[#E8804A]" />
           <span>Thư mục Gallery đối soát (FAISS Face Search):</span>
         </div>
 
@@ -49,7 +49,7 @@ export const GalleryPicker: React.FC = () => {
               <button
                 type="button"
                 onClick={handleNativeBrowse}
-                className="text-xs bg-[#C97B4A] hover:brightness-110 text-white font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow-sm"
+                className="text-xs bg-[#E8804A] hover:bg-[#D97706] text-white font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow-xs"
               >
                 <FolderOpen className="w-3.5 h-3.5" />
                 <span>Chọn thư mục</span>
@@ -61,7 +61,7 @@ export const GalleryPicker: React.FC = () => {
                   setIsManualInput(true);
                 }}
                 title="Nhập đường dẫn trực tiếp"
-                className="text-xs text-[#8E98A5] hover:text-[#E8E6E0] p-1.5 rounded-lg hover:bg-[#262E38] transition-colors"
+                className="text-xs text-[#6B7280] hover:text-[#111827] p-1.5 rounded-lg hover:bg-[#F3F4F6] transition-colors"
               >
                 <Edit3 className="w-3.5 h-3.5" />
               </button>
@@ -71,15 +71,15 @@ export const GalleryPicker: React.FC = () => {
       </div>
 
       {!isManualInput ? (
-        <div className="flex items-center justify-between bg-[#12161C] px-3.5 py-2.5 rounded-lg border border-[#262E38]">
-          <code className="text-xs text-[#E8E6E0] font-mono truncate max-w-lg">
+        <div className="flex items-center justify-between bg-[#F9FAFB] px-3.5 py-2.5 rounded-lg border border-[#E5E7EB]">
+          <code className="text-xs text-[#111827] font-mono truncate max-w-lg">
             {store.galleryDir ? store.galleryDir : './data/test_gallery (Mặc định dự án)'}
           </code>
           {store.galleryDir && (
             <button
               onClick={handleReset}
               title="Đặt lại về mặc định"
-              className="text-[#8E98A5] hover:text-[#E8E6E0] ml-2 transition-colors"
+              className="text-[#6B7280] hover:text-[#111827] ml-2 transition-colors"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
@@ -92,23 +92,26 @@ export const GalleryPicker: React.FC = () => {
             value={tempDir}
             onChange={(e) => setTempDir(e.target.value)}
             placeholder="Nhập đường dẫn thư mục ảnh đối soát (vd: D:\Data\gallery...)"
-            className="flex-1 bg-[#12161C] border border-[#2E3844] rounded-lg px-3 py-2 text-xs text-[#E8E6E0] focus:outline-none focus:border-[#C97B4A] font-mono"
+            className="flex-1 bg-white border border-[#D1D5DB] rounded-lg px-3 py-2 text-xs text-[#111827] focus:outline-none focus:border-[#E8804A] font-mono"
           />
           <button
             onClick={handleSaveManual}
-            className="bg-[#C97B4A] hover:brightness-110 text-white text-xs px-3.5 py-2 rounded-lg font-medium"
+            className="bg-[#E8804A] hover:bg-[#D97706] text-white text-xs px-3.5 py-2 rounded-lg font-medium shadow-xs"
           >
             Lưu
           </button>
           <button
             onClick={() => setIsManualInput(false)}
-            className="bg-[#262E38] hover:bg-[#2E3844] text-[#E8E6E0] text-xs px-3 py-2 rounded-lg"
+            className="bg-[#F3F4F6] hover:bg-[#E5E7EB] text-[#374151] text-xs px-3.5 py-2 rounded-lg font-medium transition-colors"
           >
             Hủy
           </button>
         </div>
       )}
+
+      <p className="text-[11px] text-[#6B7280]">
+        Chứa ảnh chân dung các ứng viên cần đối soát. Hệ thống sẽ trích xuất vector ArcFace 512D và so khớp qua Cosine Similarity.
+      </p>
     </div>
   );
 };
-

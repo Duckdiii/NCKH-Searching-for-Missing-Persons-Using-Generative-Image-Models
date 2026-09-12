@@ -1,12 +1,41 @@
 import { create } from 'zustand';
-import { FaceBox, JobResult } from '../types/api';
+import { FaceBox, JobHistoryItem, JobResult } from '../types/api';
+
+const HISTORY_STORAGE_KEY = 'fading_session_history';
+
+function loadInitialHistory(): JobHistoryItem[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.error('Failed to load history from localStorage:', e);
+  }
+  return [];
+}
+
+function saveHistoryToStorage(history: JobHistoryItem[]) {
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+  } catch (e) {
+    console.error('Failed to save history to localStorage:', e);
+  }
+}
 
 interface SearchState {
-  // Backend config
+  // Backend config & metadata
   backendPort: number;
   checkpointReady: boolean;
   missingCheckpoints: string[];
   isCheckingHealth: boolean;
+  checkpointName: string;
+  appVersion: string;
+
+  // Shell & Navigation state
+  isAdvancedMode: boolean;
+  isSidebarCollapsed: boolean;
+  sessionHistory: JobHistoryItem[];
+  isHistoricalView: boolean;
+  currentWizardStep: 'restore' | 'generate' | 'results';
 
   // Session state
   sessionId: string | null;
@@ -36,8 +65,16 @@ interface SearchState {
 
   // Actions
   setBackendPort: (port: number) => void;
-  setCheckpoints: (ready: boolean, missing: string[]) => void;
+  setCheckpoints: (ready: boolean, missing: string[], checkpointName?: string, appVersion?: string) => void;
   setIsCheckingHealth: (checking: boolean) => void;
+  toggleAdvancedMode: () => void;
+  setAdvancedMode: (val: boolean) => void;
+  toggleSidebar: () => void;
+  setSidebarCollapsed: (val: boolean) => void;
+  setCurrentWizardStep: (step: 'restore' | 'generate' | 'results') => void;
+  addHistoryItem: (item: JobHistoryItem) => void;
+  loadHistoricalJob: (item: JobHistoryItem) => void;
+  startNewSearch: () => void;
   setUploadResult: (sessionId: string, faces: FaceBox[], imageUrl: string) => void;
   setSelectedFace: (idx: number, warnings: string[], cropUrl: string) => void;
   setGenderWord: (gender: 'man' | 'woman') => void;
@@ -56,11 +93,19 @@ interface SearchState {
   resetForNewUpload: () => void;
 }
 
-export const useSearchStore = create<SearchState>((set) => ({
+export const useSearchStore = create<SearchState>((set, get) => ({
   backendPort: 8000,
   checkpointReady: true,
   missingCheckpoints: [],
   isCheckingHealth: true,
+  checkpointName: 'unknown',
+  appVersion: '0.1.0',
+
+  isAdvancedMode: false,
+  isSidebarCollapsed: false,
+  sessionHistory: loadInitialHistory(),
+  isHistoricalView: false,
+  currentWizardStep: 'restore',
 
   sessionId: null,
   uploadedImageUrl: null,
@@ -85,8 +130,64 @@ export const useSearchStore = create<SearchState>((set) => ({
   jobError: null,
 
   setBackendPort: (port) => set({ backendPort: port }),
-  setCheckpoints: (ready, missing) => set({ checkpointReady: ready, missingCheckpoints: missing, isCheckingHealth: false }),
+  setCheckpoints: (ready, missing, checkpointName, appVersion) => set({
+    checkpointReady: ready,
+    missingCheckpoints: missing,
+    isCheckingHealth: false,
+    ...(checkpointName ? { checkpointName } : {}),
+    ...(appVersion ? { appVersion } : {}),
+  }),
   setIsCheckingHealth: (checking) => set({ isCheckingHealth: checking }),
+
+  toggleAdvancedMode: () => set((state) => ({ isAdvancedMode: !state.isAdvancedMode })),
+  setAdvancedMode: (val) => set({ isAdvancedMode: val }),
+
+  toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
+  setSidebarCollapsed: (val) => set({ isSidebarCollapsed: val }),
+  setCurrentWizardStep: (step) => set({ currentWizardStep: step }),
+
+  addHistoryItem: (item) => {
+    const existing = get().sessionHistory;
+    const filtered = existing.filter((h) => h.job_id !== item.job_id);
+    const updated = [item, ...filtered];
+    saveHistoryToStorage(updated);
+    set({ sessionHistory: updated });
+  },
+
+  loadHistoricalJob: (item) => {
+    if (item.result) {
+      set({
+        jobId: item.job_id,
+        sessionId: item.session_id,
+        jobStatus: item.status,
+        jobStage: item.stage,
+        jobResult: item.result,
+        isHistoricalView: true,
+        currentWizardStep: 'results',
+      });
+    }
+  },
+
+  startNewSearch: () => {
+    set({
+      sessionId: null,
+      uploadedImageUrl: null,
+      faces: [],
+      selectedFaceIdx: null,
+      warnings: [],
+      croppedPreviewUrl: null,
+      initialAge: null,
+      ageWarningText: null,
+      jobId: null,
+      jobStatus: 'idle',
+      jobStage: 'specialization',
+      jobResult: null,
+      jobError: null,
+      isHistoricalView: false,
+      currentWizardStep: 'restore',
+    });
+  },
+
   setUploadResult: (sessionId, faces, imageUrl) => set({
     sessionId,
     faces,
@@ -100,6 +201,7 @@ export const useSearchStore = create<SearchState>((set) => ({
     jobStatus: 'idle',
     jobResult: null,
     jobError: null,
+    isHistoricalView: false,
   }),
   setSelectedFace: (idx, warnings, cropUrl) => set({
     selectedFaceIdx: idx,
@@ -116,19 +218,55 @@ export const useSearchStore = create<SearchState>((set) => ({
     isEstimatingAge: false,
   }),
   setGalleryDir: (dir) => set({ galleryDir: dir }),
-  startJob: (jobId) => set({
-    jobId,
-    jobStatus: 'running',
-    jobStage: 'specialization',
-    jobResult: null,
-    jobError: null,
-  }),
-  updateJobProgress: (status, stage, result, error) => set({
-    jobStatus: status,
-    jobStage: stage,
-    jobResult: result || null,
-    jobError: error || null,
-  }),
+  startJob: (jobId) => {
+    const sessionId = get().sessionId || 'unknown';
+    const newHistoryItem: JobHistoryItem = {
+      job_id: jobId,
+      session_id: sessionId,
+      status: 'running',
+      stage: 'specialization',
+      timestamp: Date.now(),
+    };
+    get().addHistoryItem(newHistoryItem);
+
+    set({
+      jobId,
+      jobStatus: 'running',
+      jobStage: 'specialization',
+      jobResult: null,
+      jobError: null,
+      isHistoricalView: false,
+    });
+  },
+  updateJobProgress: (status, stage, result, error) => {
+    const jobId = get().jobId;
+    if (jobId) {
+      const history = get().sessionHistory;
+      const target = history.find((h) => h.job_id === jobId);
+      if (target) {
+        target.status = status;
+        target.stage = stage;
+        if (result) {
+          target.result = result;
+          target.top_identity = result.top_identity;
+          target.top_score = result.top_score;
+          target.accepted = result.accepted;
+        }
+        if (error) {
+          target.error_message = error;
+        }
+        saveHistoryToStorage([...history]);
+        set({ sessionHistory: [...history] });
+      }
+    }
+
+    set({
+      jobStatus: status,
+      jobStage: stage,
+      jobResult: result || null,
+      jobError: error || null,
+    });
+  },
   resetForNewUpload: () => set({
     sessionId: null,
     uploadedImageUrl: null,
@@ -142,5 +280,6 @@ export const useSearchStore = create<SearchState>((set) => ({
     jobStatus: 'idle',
     jobResult: null,
     jobError: null,
+    isHistoricalView: false,
   }),
 }));

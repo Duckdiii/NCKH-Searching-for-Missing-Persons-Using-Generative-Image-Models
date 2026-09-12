@@ -26,12 +26,9 @@ export const SearchPage: React.FC = () => {
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Quản lý trạng thái Wizard 3 bước (khóa bước tuyến tính)
-  const [currentStep, setCurrentStep] = useState<WizardStep>(() => {
-    const params = new URLSearchParams(window.location.search);
-    const pStep = params.get('step') as WizardStep;
-    if (pStep === 'generate' || pStep === 'results') return pStep;
-    return 'restore';
-  });
+  const currentStep = store.currentWizardStep;
+  const setCurrentStep = store.setCurrentWizardStep;
+
   const [completedSteps, setCompletedSteps] = useState<WizardStep[]>(() => {
     const params = new URLSearchParams(window.location.search);
     const pStep = params.get('step') as WizardStep;
@@ -44,12 +41,15 @@ export const SearchPage: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.has('preview')) {
-      const pStep = params.get('step') || 'restore';
+      const pStep = (params.get('step') || 'restore') as WizardStep;
       const pStage = params.get('stage') || '';
       const s = useSearchStore.getState();
 
-      s.setCheckpoints(true, []);
-      s.setIsCheckingHealth(false);
+      if (pStep === 'generate' || pStep === 'results') {
+        s.setCurrentWizardStep(pStep);
+        if (pStep === 'results') setCompletedSteps(['restore', 'generate']);
+        else if (pStep === 'generate') setCompletedSteps(['restore']);
+      }
 
       if (params.get('empty') === '1') {
         return;
@@ -103,9 +103,25 @@ export const SearchPage: React.FC = () => {
   useEffect(() => {
     if (store.jobStatus === 'done' && currentStep !== 'results') {
       setCompletedSteps((prev) => Array.from(new Set([...prev, 'restore', 'generate'])));
-      setCurrentStep('results');
+      store.setCurrentWizardStep('results');
     }
   }, [store.jobStatus, currentStep]);
+
+  // Đồng bộ khi chọn xem lại một phiên trong lịch sử
+  useEffect(() => {
+    if (store.isHistoricalView && currentStep !== 'results') {
+      setCompletedSteps(['restore', 'generate']);
+      store.setCurrentWizardStep('results');
+    }
+  }, [store.isHistoricalView, currentStep]);
+
+  // Đồng bộ khi bấm "Tìm kiếm mới" từ Sidebar hoặc Command Palette
+  useEffect(() => {
+    if (!store.sessionId && !store.jobId && !store.isHistoricalView && currentStep !== 'restore') {
+      store.setCurrentWizardStep('restore');
+      setCompletedSteps([]);
+    }
+  }, [store.sessionId, store.jobId, store.isHistoricalView, currentStep]);
 
   // Điều hướng stepper: chỉ cho phép click nếu bước đã nằm trong completedSteps
   const handleStepClick = (step: WizardStep) => {
@@ -179,34 +195,34 @@ export const SearchPage: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 space-y-6">
-      {/* Header phẳng, không gradient */}
-      <header className="flex items-center justify-between border-b border-[#262E38] pb-4">
+      {/* Header phẳng, hiện đại kiểu workspace */}
+      <header className="flex items-center justify-between border-b border-[#E5E7EB] pb-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-[#E8E6E0]">
-              Missing Person Search via <span className="text-[#C97B4A]">FADING</span>
+            <h1 className="text-xl font-bold text-[#111827]">
+              Missing Person Search via <span className="text-[#E8804A]">FADING</span>
             </h1>
-            <span className="bg-[#12161C] border border-[#262E38] text-[#8E98A5] text-[11px] px-2.5 py-0.5 rounded-full font-mono font-medium">
+            <span className="bg-white border border-[#E5E7EB] text-[#6B7280] text-[11px] px-2.5 py-0.5 rounded-full font-mono font-medium shadow-2xs">
               v2.0 Desktop Wizard
             </span>
           </div>
-          <p className="text-xs text-[#8E98A5] mt-1">
+          <p className="text-xs text-[#6B7280] mt-1">
             Hệ thống nhận diện & tìm kiếm người mất tích qua mô hình khuếch tán Dual-Attention
           </p>
         </div>
 
         <div className="flex items-center gap-2.5">
-          <div className="flex items-center gap-1.5 bg-[#12161C] border border-[#262E38] px-3 py-1.5 rounded-full text-xs font-mono text-[#4A8FA0]">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#4A8FA0]" />
+          <div className="flex items-center gap-1.5 bg-[#EFF6FF] border border-[#BFDBFE] px-3 py-1.5 rounded-full text-xs font-mono text-[#3B82C7]">
+            <ShieldCheck className="w-3.5 h-3.5 text-[#3B82C7]" />
             <span>Port: {store.backendPort}</span>
           </div>
 
           {store.sessionId && (
             <button
               onClick={handleResetAll}
-              className="flex items-center gap-1.5 text-xs bg-[#1B2129] hover:bg-[#262E38] text-[#E8E6E0] px-3 py-1.5 rounded-lg border border-[#262E38] transition-colors"
+              className="flex items-center gap-1.5 text-xs bg-white hover:bg-[#F9FAFB] text-[#111827] px-3 py-1.5 rounded-lg border border-[#E5E7EB] transition-colors shadow-2xs"
             >
-              <RotateCcw className="w-3.5 h-3.5 text-[#8E98A5]" />
+              <RotateCcw className="w-3.5 h-3.5 text-[#6B7280]" />
               <span>Làm mới</span>
             </button>
           )}
@@ -230,7 +246,7 @@ export const SearchPage: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
               {/* Cột trái (~58% / lg:col-span-7): Ô upload / kéo thả */}
               <div className="lg:col-span-7">
-                <div className="bg-[#1B2129] border-2 border-dashed border-[#262E38] hover:border-[#C97B4A] rounded-2xl p-10 text-center transition-all duration-200 group shadow-lg">
+                <div className="bg-white border-2 border-dashed border-[#E5E7EB] hover:border-[#E8804A] rounded-2xl p-10 text-center transition-all duration-200 group shadow-xs">
                   <input
                     type="file"
                     id="file-upload"
@@ -240,23 +256,23 @@ export const SearchPage: React.FC = () => {
                     disabled={isUploading}
                   />
                   <label htmlFor="file-upload" className="cursor-pointer block">
-                    <div className="w-16 h-16 bg-[#12161C] border border-[#262E38] text-[#C97B4A] rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform shadow-md">
+                    <div className="w-16 h-16 bg-[#F9FAFB] border border-[#E5E7EB] text-[#E8804A] rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform shadow-xs">
                       {isUploading ? (
-                        <Loader2 className="w-8 h-8 animate-spin text-[#C97B4A]" />
+                        <Loader2 className="w-8 h-8 animate-spin text-[#E8804A]" />
                       ) : (
                         <UploadCloud className="w-8 h-8" />
                       )}
                     </div>
-                    <h3 className="text-base font-bold text-[#E8E6E0] mb-1.5">
+                    <h3 className="text-base font-bold text-[#111827] mb-1.5">
                       {isUploading ? 'Đang tải và phát hiện khuôn mặt...' : 'Chọn hoặc kéo thả ảnh cần tìm'}
                     </h3>
-                    <p className="text-xs text-[#8E98A5] max-w-md mx-auto">
+                    <p className="text-xs text-[#6B7280] max-w-md mx-auto">
                       Hỗ trợ định dạng PNG, JPG, JPEG. Hệ thống sẽ tự động nhận diện và căn chỉnh khuôn mặt chuẩn FFHQ 256×256.
                     </p>
                   </label>
 
                   {uploadError && (
-                    <div className="mt-4 inline-block bg-[#B8564A]/15 border border-[#B8564A]/40 text-[#E8E6E0] text-xs px-3.5 py-2 rounded-lg">
+                    <div className="mt-4 inline-block bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] text-xs px-3.5 py-2 rounded-lg">
                       {uploadError}
                     </div>
                   )}
@@ -264,59 +280,59 @@ export const SearchPage: React.FC = () => {
               </div>
 
               {/* Cột phải (~42% / lg:col-span-5): Card tĩnh "Ảnh đầu vào tốt cần gì?" */}
-              <div className="lg:col-span-5 bg-[#1B2129] border border-[#262E38] rounded-2xl p-5 sm:p-6 shadow-lg space-y-4">
-                <div className="flex items-center gap-2 border-b border-[#262E38] pb-3">
-                  <CheckCircle2 className="w-4 h-4 text-[#4A8FA0]" />
-                  <h4 className="text-sm font-bold text-[#E8E6E0]">Ảnh đầu vào tốt cần gì?</h4>
+              <div className="lg:col-span-5 bg-white border border-[#E5E7EB] rounded-2xl p-5 sm:p-6 shadow-xs space-y-4">
+                <div className="flex items-center gap-2 border-b border-[#E5E7EB] pb-3">
+                  <CheckCircle2 className="w-4 h-4 text-[#3B82C7]" />
+                  <h4 className="text-sm font-bold text-[#111827]">Ảnh đầu vào tốt cần gì?</h4>
                 </div>
-                <p className="text-xs text-[#8E98A5]">
+                <p className="text-xs text-[#6B7280]">
                   Để mô hình khuếch tán FADING sinh các lứa tuổi đạt độ nhận diện danh tính cao nhất:
                 </p>
 
                 <div className="space-y-3.5 text-xs">
                   <div className="flex items-start gap-3">
-                    <div className="w-5 h-5 rounded-full bg-[#4A8FA0]/20 text-[#4A8FA0] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
+                    <div className="w-5 h-5 rounded-full bg-[#EFF6FF] text-[#3B82C7] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
                       1
                     </div>
                     <div>
-                      <p className="font-semibold text-[#E8E6E0]">Chính diện, rõ nét</p>
-                      <p className="text-[#8E98A5] mt-0.5">
+                      <p className="font-semibold text-[#111827]">Chính diện, rõ nét</p>
+                      <p className="text-[#6B7280] mt-0.5">
                         Khuôn mặt nhìn thẳng, góc quay đầu nghiêng không quá 15° so với trục ống kính.
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-3">
-                    <div className="w-5 h-5 rounded-full bg-[#4A8FA0]/20 text-[#4A8FA0] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
+                    <div className="w-5 h-5 rounded-full bg-[#EFF6FF] text-[#3B82C7] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
                       2
                     </div>
                     <div>
-                      <p className="font-semibold text-[#E8E6E0]">Chỉ 1 khuôn mặt</p>
-                      <p className="text-[#8E98A5] mt-0.5">
+                      <p className="font-semibold text-[#111827]">Chỉ 1 khuôn mặt</p>
+                      <p className="text-[#6B7280] mt-0.5">
                         Ảnh chân dung chụp đơn lẻ một người, không bị che khuất bởi người đứng cạnh.
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-3">
-                    <div className="w-5 h-5 rounded-full bg-[#4A8FA0]/20 text-[#4A8FA0] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
+                    <div className="w-5 h-5 rounded-full bg-[#EFF6FF] text-[#3B82C7] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
                       3
                     </div>
                     <div>
-                      <p className="font-semibold text-[#E8E6E0]">Độ phân giải khuôn mặt ≥ 128×128px</p>
-                      <p className="text-[#8E98A5] mt-0.5">
+                      <p className="font-semibold text-[#111827]">Độ phân giải khuôn mặt ≥ 128×128px</p>
+                      <p className="text-[#6B7280] mt-0.5">
                         Vùng mặt càng sắc nét thì vector đặc trưng khuôn mặt trích xuất càng chuẩn xác.
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-3">
-                    <div className="w-5 h-5 rounded-full bg-[#4A8FA0]/20 text-[#4A8FA0] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
+                    <div className="w-5 h-5 rounded-full bg-[#EFF6FF] text-[#3B82C7] flex items-center justify-center font-bold text-[10px] flex-shrink-0 mt-0.5">
                       4
                     </div>
                     <div>
-                      <p className="font-semibold text-[#E8E6E0]">Không bị che khuất ngũ quan</p>
-                      <p className="text-[#8E98A5] mt-0.5">
+                      <p className="font-semibold text-[#111827]">Không bị che khuất ngũ quan</p>
+                      <p className="text-[#6B7280] mt-0.5">
                         Tránh ảnh đeo kính râm tối màu, khẩu trang hoặc tóc xõa phủ kín mắt và mũi.
                       </p>
                     </div>
@@ -365,46 +381,46 @@ export const SearchPage: React.FC = () => {
               </div>
 
               {/* Cột phải (~40% / lg:col-span-5): Card Thông tin phiên chạy */}
-              <div className="lg:col-span-5 bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg space-y-4">
-                <div className="border-b border-[#262E38] pb-3">
-                  <h4 className="text-sm font-bold text-[#E8E6E0]">Thông tin phiên chạy</h4>
-                  <p className="text-xs text-[#8E98A5] mt-0.5">Tiến trình AI đang thực thi trên phần cứng GPU</p>
+              <div className="lg:col-span-5 bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-xs space-y-4">
+                <div className="border-b border-[#E5E7EB] pb-3">
+                  <h4 className="text-sm font-bold text-[#111827]">Thông tin phiên chạy</h4>
+                  <p className="text-xs text-[#6B7280] mt-0.5">Tiến trình AI đang thực thi trên phần cứng GPU</p>
                 </div>
 
-                <div className="flex items-center gap-3.5 p-3.5 bg-[#12161C] border border-[#262E38] rounded-xl">
+                <div className="flex items-center gap-3.5 p-3.5 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl">
                   {croppedFaceFullUrl ? (
                     <img
                       src={croppedFaceFullUrl}
                       alt="Cropped target"
-                      className="w-14 h-14 rounded-lg object-cover border border-[#C97B4A] shadow bg-black flex-shrink-0"
+                      className="w-14 h-14 rounded-lg object-cover border border-[#E8804A] shadow-xs bg-white flex-shrink-0"
                     />
                   ) : (
-                    <div className="w-14 h-14 rounded-lg bg-black/40 flex items-center justify-center text-xs text-[#8E98A5]">
+                    <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center text-xs text-[#6B7280]">
                       Mặt gốc
                     </div>
                   )}
                   <div className="text-xs space-y-1 overflow-hidden">
-                    <p className="font-semibold text-[#E8E6E0]">
+                    <p className="font-semibold text-[#111827]">
                       Đối tượng: {store.genderWord === 'man' ? 'Nam' : 'Nữ'} • {store.initialAge ?? store.manualAge} tuổi
                     </p>
-                    <p className="text-[11px] text-[#4A8FA0] font-mono truncate">
+                    <p className="text-[11px] text-[#3B82C7] font-mono truncate">
                       Job ID: {store.jobId || store.sessionId || 'job_fading_active'}
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-2.5 text-xs">
-                  <div className="flex justify-between py-1.5 border-b border-[#262E38]">
-                    <span className="text-[#8E98A5]">Dải tuổi dự đoán:</span>
-                    <span className="text-[#E8E6E0] font-mono">15 - 70 tuổi (8 mốc)</span>
+                  <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
+                    <span className="text-[#6B7280]">Dải tuổi dự đoán:</span>
+                    <span className="text-[#111827] font-mono">15 - 70 tuổi (8 mốc)</span>
                   </div>
-                  <div className="flex justify-between py-1.5 border-b border-[#262E38]">
-                    <span className="text-[#8E98A5]">Phần cứng xử lý:</span>
-                    <span className="text-[#4A8FA0] font-mono">NVIDIA CUDA / TensorRT</span>
+                  <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
+                    <span className="text-[#6B7280]">Phần cứng xử lý:</span>
+                    <span className="text-[#3B82C7] font-mono font-medium">NVIDIA CUDA / TensorRT</span>
                   </div>
-                  <div className="flex justify-between py-1.5 border-b border-[#262E38]">
-                    <span className="text-[#8E98A5]">Giai đoạn hiện tại:</span>
-                    <span className="text-[#C97B4A] font-semibold uppercase">{store.jobStage}</span>
+                  <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
+                    <span className="text-[#6B7280]">Giai đoạn hiện tại:</span>
+                    <span className="text-[#E8804A] font-semibold uppercase">{store.jobStage}</span>
                   </div>
                 </div>
               </div>
@@ -415,7 +431,7 @@ export const SearchPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setCurrentStep('restore')}
-                className="text-xs text-[#8E98A5] hover:text-[#E8E6E0] flex items-center gap-1.5 transition-colors"
+                className="text-xs text-[#6B7280] hover:text-[#111827] flex items-center gap-1.5 transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Quay lại bước khôi phục ảnh</span>
@@ -429,35 +445,35 @@ export const SearchPage: React.FC = () => {
                 </div>
 
                 {/* Cột phải (~40% / lg:col-span-5): Card Tóm tắt trước khi chạy + Nút CTA chính */}
-                <div className="lg:col-span-5 bg-[#1B2129] border border-[#262E38] rounded-xl p-5 sm:p-6 shadow-lg space-y-4 lg:sticky lg:top-6">
-                  <div className="border-b border-[#262E38] pb-3">
-                    <h4 className="text-sm font-bold text-[#E8E6E0]">Tóm tắt trước khi chạy</h4>
-                    <p className="text-xs text-[#8E98A5] mt-0.5">Xác nhận cấu hình trước khi khởi động pipeline FADING</p>
+                <div className="lg:col-span-5 bg-white border border-[#E5E7EB] rounded-xl p-5 sm:p-6 shadow-xs space-y-4 lg:sticky lg:top-6">
+                  <div className="border-b border-[#E5E7EB] pb-3">
+                    <h4 className="text-sm font-bold text-[#111827]">Tóm tắt trước khi chạy</h4>
+                    <p className="text-xs text-[#6B7280] mt-0.5">Xác nhận cấu hình trước khi khởi động pipeline FADING</p>
                   </div>
 
-                  <div className="flex items-center gap-3.5 p-3.5 bg-[#12161C] border border-[#262E38] rounded-xl">
+                  <div className="flex items-center gap-3.5 p-3.5 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl">
                     {croppedFaceFullUrl ? (
                       <img
                         src={croppedFaceFullUrl}
                         alt="Selected Target Face"
-                        className="w-16 h-16 rounded-lg object-cover border-2 border-[#4A8FA0] shadow bg-black flex-shrink-0"
+                        className="w-16 h-16 rounded-lg object-cover border-2 border-[#3B82C7] shadow-xs bg-white flex-shrink-0"
                       />
                     ) : (
-                      <div className="w-16 h-16 rounded-lg bg-black/40 border border-[#262E38] flex items-center justify-center text-[10px] text-[#8E98A5]">
+                      <div className="w-16 h-16 rounded-lg bg-gray-100 border border-[#E5E7EB] flex items-center justify-center text-[10px] text-[#6B7280]">
                         Chưa có ảnh
                       </div>
                     )}
                     <div className="text-xs space-y-1 overflow-hidden">
-                      <p className="font-bold text-[#E8E6E0]">
+                      <p className="font-bold text-[#111827]">
                         Đối tượng: {store.genderWord === 'man' ? 'Nam (Man / Boy)' : 'Nữ (Woman / Girl)'}
                       </p>
-                      <p className="text-[#8E98A5]">
+                      <p className="text-[#6B7280]">
                         Tuổi lúc chụp:{' '}
-                        <span className="font-semibold text-[#C97B4A]">
+                        <span className="font-semibold text-[#E8804A]">
                           {store.initialAge ?? store.manualAge} tuổi
                         </span>
                       </p>
-                      <p className="text-[11px] text-[#8E98A5]">
+                      <p className="text-[11px] text-[#6B7280]">
                         Xác định:{' '}
                         {store.ageMode === 'manual' ? 'Nhập chính xác' : 'MiVOLO AI ước tính'}
                       </p>
@@ -465,10 +481,10 @@ export const SearchPage: React.FC = () => {
                   </div>
 
                   <div className="space-y-2 text-xs">
-                    <div className="flex justify-between py-1.5 border-b border-[#262E38]">
-                      <span className="text-[#8E98A5]">Thư viện đối soát:</span>
+                    <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
+                      <span className="text-[#6B7280]">Thư viện đối soát:</span>
                       <span
-                        className="font-mono text-[#E8E6E0] text-right truncate max-w-[170px]"
+                        className="font-mono text-[#111827] text-right truncate max-w-[170px]"
                         title={store.galleryDir || 'Mặc định (test_gallery)'}
                       >
                         {store.galleryDir
@@ -476,13 +492,13 @@ export const SearchPage: React.FC = () => {
                           : 'Mặc định (test_gallery)'}
                       </span>
                     </div>
-                    <div className="flex justify-between py-1.5 border-b border-[#262E38]">
-                      <span className="text-[#8E98A5]">Dải tuổi sẽ sinh:</span>
-                      <span className="text-[#E8E6E0] font-mono">15 - 70 tuổi (8 mốc)</span>
+                    <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
+                      <span className="text-[#6B7280]">Dải tuổi sẽ sinh:</span>
+                      <span className="text-[#111827] font-mono">15 - 70 tuổi (8 mốc)</span>
                     </div>
-                    <div className="flex justify-between py-1.5 border-b border-[#262E38]">
-                      <span className="text-[#8E98A5]">Quy trình xử lý:</span>
-                      <span className="text-[#4A8FA0] font-mono">Inversion → Edit → FAISS</span>
+                    <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
+                      <span className="text-[#6B7280]">Quy trình xử lý:</span>
+                      <span className="text-[#3B82C7] font-mono">Inversion → Edit → FAISS</span>
                     </div>
                   </div>
 
@@ -492,12 +508,12 @@ export const SearchPage: React.FC = () => {
                     data-testid="run-pipeline-btn"
                     onClick={handleRun}
                     disabled={!isReadyToRun}
-                    className="w-full flex items-center justify-center gap-2 bg-[#C97B4A] hover:bg-[#B56D40] text-white font-bold py-3.5 px-5 rounded-xl transition-all shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full flex items-center justify-center gap-2 bg-[#E8804A] hover:bg-[#D97706] text-white font-bold py-3.5 px-5 rounded-xl transition-all shadow-xs hover:shadow disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Play className="w-4 h-4 fill-current" />
                     <span>Chạy Pipeline FADING</span>
                   </button>
-                  <p className="text-[11px] text-[#8E98A5] text-center">
+                  <p className="text-[11px] text-[#6B7280] text-center">
                     Mỗi lần chạy sẽ tính toán và sinh ảnh qua GPU (ước tính ~30s)
                   </p>
                 </div>
@@ -516,7 +532,7 @@ export const SearchPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setCurrentStep('generate')}
-              className="text-xs text-[#8E98A5] hover:text-[#E8E6E0] flex items-center gap-1.5 transition-colors"
+              className="text-xs text-[#6B7280] hover:text-[#111827] flex items-center gap-1.5 transition-colors"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Xem lại thông tin cấu hình đối soát</span>
@@ -525,7 +541,7 @@ export const SearchPage: React.FC = () => {
             <button
               type="button"
               onClick={handleResetAll}
-              className="text-xs text-[#C97B4A] hover:underline flex items-center gap-1 font-semibold"
+              className="text-xs text-[#E8804A] hover:underline flex items-center gap-1 font-semibold"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>Bắt đầu phiên tìm kiếm mới</span>

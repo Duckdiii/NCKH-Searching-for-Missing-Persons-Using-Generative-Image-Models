@@ -47,21 +47,21 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
   }, [isDragging, updateSlider]);
 
   return (
-    <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg space-y-5 animate-in fade-in duration-300">
+    <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-xs space-y-5 animate-in fade-in duration-300">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-[#262E38] pb-3">
+      <div className="flex items-center justify-between border-b border-[#E5E7EB] pb-3">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-[#C97B4A]" />
+          <Sparkles className="w-5 h-5 text-[#E8804A]" />
           <div>
-            <h4 className="text-sm font-bold text-[#E8E6E0]">
+            <h4 className="text-sm font-bold text-[#111827]">
               Khôi phục chi tiết khuôn mặt (CodeFormer Face Restoration)
             </h4>
-            <p className="text-xs text-[#8E98A5] mt-0.5">
+            <p className="text-xs text-[#6B7280] mt-0.5">
               Tùy chọn: Tăng độ nét và khử nhiễu ảnh chân dung mờ/cũ trước khi đưa vào FADING
             </p>
           </div>
         </div>
-        <span className="text-[11px] bg-[#12161C] border border-[#262E38] text-[#4A8FA0] px-2.5 py-1 rounded-full font-mono font-medium">
+        <span className="text-[11px] bg-[#F9FAFB] border border-[#E5E7EB] text-[#3B82C7] px-2.5 py-1 rounded-full font-mono font-medium">
           CodeFormer w={fidelity.toFixed(2)}
         </span>
       </div>
@@ -71,7 +71,7 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
         <div
           ref={containerRef}
           onMouseDown={handleMouseDown}
-          className="relative w-72 h-72 rounded-xl overflow-hidden cursor-ew-resize select-none border-2 border-[#262E38] bg-black shadow-xl"
+          className="relative w-72 h-72 rounded-xl overflow-hidden cursor-ew-resize select-none border-2 border-[#E5E7EB] bg-[#F9FAFB] shadow-md"
         >
           {/* Layer AFTER (Ảnh đã khôi phục) */}
           <div className="absolute inset-0 w-full h-full overflow-hidden">
@@ -83,7 +83,7 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
               }}
               className="w-full h-full object-cover"
             />
-            <span className="absolute top-2 right-2 bg-[#4A8FA0]/90 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
+            <span className="absolute top-2 right-2 bg-[#3B82C7] text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">
               ĐÃ KHÔI PHỤC (w={fidelity})
             </span>
           </div>
@@ -98,7 +98,7 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
               alt="Original Face"
               className="w-full h-full object-cover filter brightness-95"
             />
-            <span className="absolute top-2 left-2 bg-[#1B2129]/90 border border-[#262E38] text-[#E8E6E0] text-[10px] font-bold px-2 py-0.5 rounded shadow">
+            <span className="absolute top-2 left-2 bg-white/95 border border-[#E5E7EB] text-[#111827] text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">
               ẢNH GỐC
             </span>
           </div>
@@ -108,26 +108,26 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
             className="absolute top-0 bottom-0 w-0.5 bg-white shadow-lg pointer-events-none"
             style={{ left: `${sliderPos}%` }}
           >
-            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-[#C97B4A] text-white flex items-center justify-center shadow-lg border border-white/50 text-[10px] font-bold">
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-[#E8804A] text-white flex items-center justify-center shadow-md border-2 border-white text-[10px] font-bold">
               ↔
             </div>
           </div>
         </div>
-        <p className="text-[11px] text-[#8E98A5]">
-          Kéo thanh trượt ngang <span className="text-[#C97B4A] font-semibold">↔</span> để so sánh Before / After
+        <p className="text-[11px] text-[#6B7280]">
+          Kéo thanh trượt ngang <span className="text-[#E8804A] font-semibold">↔</span> để so sánh Before / After
         </p>
       </div>
 
       {/* Điều khiển tham số CodeFormer */}
-      <div className="bg-[#12161C] border border-[#262E38] rounded-xl p-4 space-y-4">
+      <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 space-y-4">
         {/* Slider Fidelity w */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-[#8E98A5] font-semibold flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5 text-[#C97B4A]" />
+            <span className="text-[#6B7280] font-semibold flex items-center gap-1.5">
+              <Sliders className="w-3.5 h-3.5 text-[#E8804A]" />
               Fidelity Weight (w):
             </span>
-            <span className="font-mono font-bold text-[#C97B4A]">{fidelity.toFixed(2)}</span>
+            <span className="font-mono font-bold text-[#E8804A]">{fidelity.toFixed(2)}</span>
           </div>
           <input
             type="range"
@@ -136,33 +136,33 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
             step="0.05"
             value={fidelity}
             onChange={(e) => setFidelity(parseFloat(e.target.value))}
-            className="w-full accent-[#C97B4A] cursor-pointer"
+            className="w-full accent-[#E8804A] cursor-pointer"
           />
-          <div className="flex justify-between text-[10px] text-[#8E98A5]">
+          <div className="flex justify-between text-[10px] text-[#6B7280]">
             <span>0.0 (Ưu tiên độ nét tối đa)</span>
-            <span className="text-[#C97B4A] font-semibold">0.7 (Khuyến nghị FADING)</span>
+            <span className="text-[#E8804A] font-semibold">0.7 (Khuyến nghị FADING)</span>
             <span>1.0 (Ưu tiên danh tính gốc)</span>
           </div>
         </div>
 
         {/* 2 Checkbox cấu hình */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-[#262E38]">
-          <label className="flex items-center gap-2 cursor-pointer text-xs text-[#E8E6E0] select-none">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-[#E5E7EB]">
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-[#111827] select-none">
             <input
               type="checkbox"
               checked={whiteBalance}
               onChange={(e) => setWhiteBalance(e.target.checked)}
-              className="accent-[#C97B4A] rounded w-4 h-4 cursor-pointer"
+              className="accent-[#E8804A] rounded w-4 h-4 cursor-pointer"
             />
             <span>Cân bằng trắng (Shades of Gray p=6)</span>
           </label>
 
-          <label className="flex items-center gap-2 cursor-pointer text-xs text-[#E8E6E0] select-none">
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-[#111827] select-none">
             <input
               type="checkbox"
               checked={adaptivePadding}
               onChange={(e) => setAdaptivePadding(e.target.checked)}
-              className="accent-[#C97B4A] rounded w-4 h-4 cursor-pointer"
+              className="accent-[#E8804A] rounded w-4 h-4 cursor-pointer"
             />
             <span>Padding viền (Adaptive Replicate)</span>
           </label>
@@ -174,7 +174,7 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
         <button
           type="button"
           onClick={() => onConfirm(true, fidelity, { whiteBalance, adaptivePadding })}
-          className="flex-1 flex items-center justify-center gap-2 bg-[#C97B4A] hover:bg-[#B56D40] text-white font-bold text-xs py-3 px-4 rounded-xl transition-all shadow-md"
+          className="flex-1 flex items-center justify-center gap-2 bg-[#E8804A] hover:bg-[#D97706] text-white font-bold text-xs py-3 px-4 rounded-xl transition-all shadow-xs hover:shadow"
         >
           <CheckCircle2 className="w-4 h-4" />
           <span>Dùng ảnh đã khôi phục</span>
@@ -183,10 +183,10 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
         <button
           type="button"
           onClick={() => onConfirm(false, fidelity, { whiteBalance, adaptivePadding })}
-          className="flex-1 flex items-center justify-center gap-2 bg-[#12161C] hover:bg-[#262E38] text-[#E8E6E0] font-medium text-xs py-3 px-4 rounded-xl border border-[#262E38] transition-all"
+          className="flex-1 flex items-center justify-center gap-2 bg-white hover:bg-[#F9FAFB] text-[#111827] font-medium text-xs py-3 px-4 rounded-xl border border-[#E5E7EB] transition-all shadow-xs"
         >
           <span>Bỏ qua, dùng ảnh gốc</span>
-          <ArrowRight className="w-3.5 h-3.5 text-[#8E98A5]" />
+          <ArrowRight className="w-3.5 h-3.5 text-[#6B7280]" />
         </button>
       </div>
     </div>

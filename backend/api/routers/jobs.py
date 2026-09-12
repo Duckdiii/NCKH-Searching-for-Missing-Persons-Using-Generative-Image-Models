@@ -1,7 +1,7 @@
 import asyncio
 import threading
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 
 from backend.api.dependencies import get_config
@@ -12,7 +12,7 @@ from backend.api.job_runner import (
     unsubscribe_job,
 )
 from backend.api.schemas import JobResult, JobStatus, RunPipelineRequest
-from backend.api.session_store import JobState, get_job, get_session, save_job
+from backend.api.session_store import JobState, get_job, get_session, save_job, jobs
 
 router = APIRouter(prefix="/api", tags=["jobs"])
 
@@ -57,6 +57,26 @@ def run_pipeline(session_id: str, req: RunPipelineRequest = RunPipelineRequest()
     worker_thread.start()
 
     return {"job_id": job_id, "status": "running"}
+
+
+@router.get("/jobs", response_model=List[Dict[str, Any]])
+def list_jobs():
+    """Trả về danh sách tất cả các job đã chạy từ session store in-memory."""
+    job_list = []
+    for job_id, job in list(jobs.items()):
+        item = {
+            "job_id": job.job_id,
+            "session_id": job.session_id,
+            "status": job.status,
+            "stage": job.stage,
+            "top_identity": job.result.get("top_identity") if job.result else None,
+            "top_score": job.result.get("top_score") if job.result else None,
+            "accepted": job.result.get("accepted") if job.result else None,
+            "result": job.result,
+            "error_message": job.error_message
+        }
+        job_list.append(item)
+    return job_list
 
 
 @router.get("/jobs/{job_id}", response_model=Dict[str, Any])

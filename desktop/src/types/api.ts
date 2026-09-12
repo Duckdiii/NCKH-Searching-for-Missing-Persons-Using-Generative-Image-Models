@@ -58,4 +58,19 @@ export interface JobResult {
 export interface CheckpointHealth {
   ready: boolean;
   missing: string[];
+  checkpoint_name?: string;
+  app_version?: string;
+}
+
+export interface JobHistoryItem {
+  job_id: string;
+  session_id: string;
+  status: 'idle' | 'running' | 'done' | 'error';
+  stage: string;
+  top_identity?: string | null;
+  top_score?: number | null;
+  accepted?: boolean | null;
+  result?: JobResult | null;
+  error_message?: string | null;
+  timestamp?: number;
 }

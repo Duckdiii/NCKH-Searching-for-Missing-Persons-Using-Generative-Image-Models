@@ -38,16 +38,16 @@ export const FaceSelector: React.FC = () => {
   const scaleY = naturalDim && displayDim ? displayDim.h / naturalDim.h : 1;
 
   return (
-    <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-5 shadow-lg">
+    <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 shadow-xs">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-base font-semibold text-[#E8E6E0] flex items-center gap-2">
-            <UserCheck className="w-5 h-5 text-[#C97B4A]" />
+          <h3 className="text-base font-semibold text-[#111827] flex items-center gap-2">
+            <UserCheck className="w-5 h-5 text-[#E8804A]" />
             {store.faces.length > 1
               ? `Phát hiện ${store.faces.length} khuôn mặt - Vui lòng click chọn người cần tìm`
               : 'Đã phát hiện 1 khuôn mặt'}
           </h3>
-          <p className="text-xs text-[#8E98A5] mt-0.5">
+          <p className="text-xs text-[#6B7280] mt-0.5">
             {store.faces.length > 1
               ? 'Click trực tiếp vào khung khuôn mặt để chọn đối tượng tìm kiếm.'
               : 'Hệ thống tự động chọn khuôn mặt duy nhất trong ảnh.'}
@@ -57,7 +57,7 @@ export const FaceSelector: React.FC = () => {
 
       <div className="flex flex-col md:flex-row gap-5 items-start">
         {/* Ảnh gốc với SVG Overlay Bounding Boxes */}
-        <div className="relative inline-block border border-[#262E38] rounded-lg overflow-hidden max-w-full bg-black/40">
+        <div className="relative inline-block border border-[#E5E7EB] rounded-lg overflow-hidden max-w-full bg-[#F9FAFB]">
           <img
             ref={imgRef}
             src={store.uploadedImageUrl || ''}
@@ -90,10 +90,10 @@ export const FaceSelector: React.FC = () => {
                       y={sy1}
                       width={sw}
                       height={sh}
-                      fill={isSelected ? 'rgba(74, 143, 160, 0.25)' : 'rgba(184, 86, 74, 0.2)'}
-                      stroke={isSelected ? '#4A8FA0' : '#B8564A'}
+                      fill={isSelected ? 'rgba(59, 130, 199, 0.2)' : 'rgba(220, 38, 38, 0.15)'}
+                      stroke={isSelected ? '#3B82C7' : '#DC2626'}
                       strokeWidth={isSelected ? 3 : 2}
-                      className="transition-all duration-200 group-hover:stroke-[#C9A24A] group-hover:fill-[#C9A24A]/20"
+                      className="transition-all duration-200 group-hover:stroke-[#D97706] group-hover:fill-[#D97706]/20"
                     />
                     {/* Badge số thứ tự */}
                     <rect
@@ -101,7 +101,7 @@ export const FaceSelector: React.FC = () => {
                       y={Math.max(0, sy1 - 22)}
                       width={44}
                       height={20}
-                      fill={isSelected ? '#4A8FA0' : '#B8564A'}
+                      fill={isSelected ? '#3B82C7' : '#DC2626'}
                       rx={4}
                     />
                     <text
@@ -123,9 +123,9 @@ export const FaceSelector: React.FC = () => {
 
         {/* Cột Preview ảnh mặt đã căn chỉnh FFHQ */}
         {store.croppedPreviewUrl && (
-          <div className="bg-[#12161C] p-4 rounded-lg border border-[#262E38] flex flex-col items-center">
-            <span className="text-xs uppercase tracking-wider text-[#4A8FA0] font-semibold mb-2 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-[#4A8FA0]" />
+          <div className="bg-[#F9FAFB] p-4 rounded-lg border border-[#E5E7EB] flex flex-col items-center">
+            <span className="text-xs uppercase tracking-wider text-[#3B82C7] font-semibold mb-2 flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-[#3B82C7]" />
               Mặt căn chỉnh FFHQ (256x256)
             </span>
             <img
@@ -135,9 +135,9 @@ export const FaceSelector: React.FC = () => {
                   : `http://127.0.0.1:${store.backendPort}${store.croppedPreviewUrl}`
               }
               alt="Cropped Face"
-              className="w-36 h-36 rounded-lg border-2 border-[#4A8FA0] shadow object-cover bg-black"
+              className="w-36 h-36 rounded-lg border-2 border-[#3B82C7] shadow-sm object-cover bg-white"
             />
-            <p className="text-xs text-[#8E98A5] mt-2 text-center">
+            <p className="text-xs text-[#6B7280] mt-2 text-center">
               Khuôn mặt #{(store.selectedFaceIdx ?? 0) + 1} (Tin cậy: {(
                 (store.faces[store.selectedFaceIdx ?? 0]?.det_score || 0) * 100
               ).toFixed(1)}%)
@@ -148,17 +148,17 @@ export const FaceSelector: React.FC = () => {
 
       {/* Banner cảnh báo chất lượng nhẹ nhàng tích hợp ngay trong card */}
       {store.warnings && store.warnings.length > 0 && (
-        <div className="mt-3.5 pt-3 border-t border-[#262E38] space-y-1.5">
-          <div className="flex items-center gap-1.5 text-[#C9A24A] text-xs font-medium">
-            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-[#C9A24A]" />
+        <div className="mt-3.5 pt-3 border-t border-[#E5E7EB] space-y-1.5">
+          <div className="flex items-center gap-1.5 text-[#D97706] text-xs font-medium">
+            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-[#D97706]" />
             <span>Gợi ý tối ưu chất lượng ảnh:</span>
           </div>
-          <ul className="space-y-0.5 pl-5 list-disc text-xs text-[#8E98A5]">
+          <ul className="space-y-0.5 pl-5 list-disc text-xs text-[#6B7280]">
             {store.warnings.map((w, idx) => (
               <li key={idx}>{w}</li>
             ))}
           </ul>
-          <p className="text-[11px] text-[#8E98A5]/80 italic pt-0.5">
+          <p className="text-[11px] text-[#6B7280] italic pt-0.5">
             Khuyến nghị: Ảnh chính diện, góc nghiêng ≤ 15° và rõ nét sẽ cho kết quả nhận diện FADING tối ưu nhất.
           </p>
         </div>

@@ -28,7 +28,7 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
   onStepClick,
 }) => {
   return (
-    <div className="bg-[#1B2129] border border-[#262E38] rounded-xl p-4 shadow-md">
+    <div className="bg-white border border-[#E5E7EB] rounded-xl p-4 shadow-xs">
       <div className="flex items-center justify-between relative">
         {STEPS.map((step, idx) => {
           const isCompleted = completedSteps.includes(step.id);
@@ -43,8 +43,8 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
                   data-testid={`connector-${idx}`}
                   className={`flex-1 h-0.5 mx-3 transition-colors duration-300 ${
                     completedSteps.includes(STEPS[idx - 1].id)
-                      ? 'bg-[#4A8FA0]'
-                      : 'bg-[#262E38]'
+                      ? 'bg-[#3B82C7]'
+                      : 'bg-[#E5E7EB]'
                   }`}
                 />
               )}
@@ -61,7 +61,7 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
                 }}
                 className={`flex items-center gap-3 text-left transition-all px-2.5 py-1.5 rounded-xl ${
                   canClick
-                    ? 'cursor-pointer hover:bg-[#12161C] hover:ring-1 hover:ring-[#4A8FA0]/40 group'
+                    ? 'cursor-pointer hover:bg-[#F9FAFB] hover:ring-1 hover:ring-[#3B82C7]/40 group'
                     : isCurrent
                     ? 'cursor-default'
                     : 'cursor-not-allowed opacity-40 pointer-events-none'
@@ -70,16 +70,16 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
                 <div
                   className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs transition-all border ${
                     isCurrent
-                      ? 'bg-[#C97B4A] border-[#C97B4A] text-[#E8E6E0] shadow-md ring-2 ring-[#C97B4A]/30'
+                      ? 'bg-[#E8804A] border-[#E8804A] text-white shadow-sm ring-2 ring-[#E8804A]/30'
                       : isCompleted
-                      ? 'bg-[#4A8FA0]/20 border-[#4A8FA0] text-[#4A8FA0] group-hover:scale-105 group-hover:bg-[#4A8FA0]/30'
-                      : 'bg-[#12161C] border-[#262E38] text-[#8E98A5]'
+                      ? 'bg-[#EFF6FF] border-[#3B82C7] text-[#3B82C7] group-hover:scale-105 group-hover:bg-[#DBEAFE]'
+                      : 'bg-[#F9FAFB] border-[#E5E7EB] text-[#9CA3AF]'
                   }`}
                 >
                   {isCompleted ? (
-                    <Check className="w-4 h-4 text-[#4A8FA0] stroke-[2.5]" />
+                    <Check className="w-4 h-4 text-[#3B82C7] stroke-[2.5]" />
                   ) : isLocked ? (
-                    <Lock className="w-3.5 h-3.5 text-[#8E98A5]" />
+                    <Lock className="w-3.5 h-3.5 text-[#9CA3AF]" />
                   ) : (
                     <span>{step.num}</span>
                   )}
@@ -89,15 +89,15 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
                   <p
                     className={`text-xs font-semibold ${
                       isCurrent
-                        ? 'text-[#E8E6E0]'
+                        ? 'text-[#111827]'
                         : isCompleted
-                        ? 'text-[#4A8FA0]'
-                        : 'text-[#8E98A5]'
+                        ? 'text-[#3B82C7]'
+                        : 'text-[#9CA3AF]'
                     }`}
                   >
                     {step.label}
                   </p>
-                  <p className="text-[10px] text-[#8E98A5] mt-0.5">{step.sublabel}</p>
+                  <p className="text-[10px] text-[#6B7280] mt-0.5">{step.sublabel}</p>
                 </div>
               </button>
             </React.Fragment>
