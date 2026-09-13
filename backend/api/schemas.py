@@ -1,4 +1,4 @@
-from typing import Literal, Optional, List, Dict
+from typing import Literal, Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -55,4 +55,5 @@ class JobResult(BaseModel):
     top_score: float = 0.0
     best_age: Optional[int] = None
     matched_gallery_image: Optional[str] = None
+    pipeline_params: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None

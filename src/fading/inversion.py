@@ -27,7 +27,7 @@ from src.utils.debug import check_nan
 from src.utils.prompts import build_prompt_alpha
 
 NUM_DDIM_STEPS_DEFAULT = 50
-GUIDANCE_SCALE_DEFAULT = 7.5
+GUIDANCE_SCALE_DEFAULT = 1.0  # Đặt 1.0 theo chuẩn DDIM Inversion thuần túy ODE của Kaggle 3
 # Chỉ lưu attention map của layer có độ phân giải (HxW) <= 32x32, bỏ layer 64x64 - giảm VRAM,
 # dùng theo đúng tối ưu của Prompt-to-Prompt gốc (layer độ phân giải thấp mang nhiều ngữ nghĩa
 # hơn, layer 64x64 gần như không cần cho attention injection).
@@ -111,7 +111,7 @@ class NullTextInverter:
         guidance_scale: float = GUIDANCE_SCALE_DEFAULT,
         num_inner_steps: int = 10,
         early_stop_epsilon: float = 1e-5,
-        image_size: int = 256,
+        image_size: int = 512,
         debug_check_nan: bool = False,
     ):
         """Lưu hyperparameters (số bước DDIM, guidance scale, số vòng tối ưu null_t mỗi bước,

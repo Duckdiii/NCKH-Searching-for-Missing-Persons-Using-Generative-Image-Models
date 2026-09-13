@@ -8,12 +8,12 @@ import { AgeInputForm } from '../components/AgeInputForm';
 import { GalleryPicker } from '../components/GalleryPicker';
 import { JobProgressBlock } from '../components/JobProgressBlock';
 import { ResultsGallery } from '../components/ResultsGallery';
+import { Skeleton } from '../components/Skeleton';
 import {
   UploadCloud,
   Play,
   RotateCcw,
   ShieldCheck,
-  Loader2,
   ArrowLeft,
   RefreshCw,
   CheckCircle2,
@@ -37,11 +37,12 @@ export const SearchPage: React.FC = () => {
     return [];
   });
 
-  // Khởi tạo dữ liệu mô phỏng trực quan khi chạy ở chế độ preview (?preview=1)
+  // Khởi tạo dữ liệu mô phỏng trực quan khi chạy ở chế độ preview (?preview=1) - chỉ cho phép trong DEV
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('preview')) {
-      const pStep = (params.get('step') || 'restore') as WizardStep;
+    if (import.meta.env.DEV) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('preview')) {
+        const pStep = (params.get('step') || 'restore') as WizardStep;
       const pStage = params.get('stage') || '';
       const s = useSearchStore.getState();
 
@@ -51,12 +52,17 @@ export const SearchPage: React.FC = () => {
         else if (pStep === 'generate') setCompletedSteps(['restore']);
       }
 
+      if (params.get('preview') === 'skeleton') {
+        setIsUploading(true);
+        return;
+      }
+
       if (params.get('empty') === '1') {
         return;
       }
 
       s.setUploadResult(
-        'session_mock_demo',
+        'sess_c7a1024e-5192-4f33-a361-9c8e147f201e',
         [{ index: 0, bbox: [80, 60, 240, 220], det_score: 0.99 }],
         '/sample_face.png'
       );
@@ -69,10 +75,11 @@ export const SearchPage: React.FC = () => {
       s.setGalleryDir('D:/Data/missing_persons_gallery');
 
       if (pStep === 'generate' && pStage === 'running') {
+        s.startJob('job_8f2d91a4-65c3-4d7e-9081-3e4b7c1a8920');
         s.updateJobProgress('running', 'editing');
       } else if (pStep === 'results') {
         s.updateJobProgress('done', 'complete', {
-          job_id: 'job_mock_demo_982',
+          job_id: 'job_8f2d91a4-65c3-4d7e-9081-3e4b7c1a8920',
           status: 'done',
           edited_images: {
             15: '/sample_face.png',
@@ -94,9 +101,18 @@ export const SearchPage: React.FC = () => {
           top_score: 0.8466,
           best_age: 25,
           matched_gallery_image: '/gallery_match.png',
+          pipeline_params: {
+            checkpoint_name: 'specialized_unet (stable-diffusion-v1-5)',
+            num_inference_steps: 50,
+            guidance_scale: 7.5,
+            attention_control_ratio: 0.8,
+            embedding_model: 'buffalo_l',
+            rejection_threshold: 0.6,
+          },
         });
       }
     }
+  }
   }, []);
 
   // Tự động chuyển sang bước 3 (Kết quả) khi pipeline hoàn tất
@@ -220,7 +236,7 @@ export const SearchPage: React.FC = () => {
           {store.sessionId && (
             <button
               onClick={handleResetAll}
-              className="flex items-center gap-1.5 text-xs bg-white hover:bg-[#F9FAFB] text-[#111827] px-3 py-1.5 rounded-lg border border-[#E5E7EB] transition-colors shadow-2xs"
+              className="flex items-center gap-1.5 text-xs bg-white hover:bg-[#F9FAFB] text-[#111827] px-3 py-1.5 rounded-lg border border-[#E5E7EB] transition-colors shadow-2xs hover-lift cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5 text-[#6B7280]" />
               <span>Làm mới</span>
@@ -240,7 +256,7 @@ export const SearchPage: React.FC = () => {
       {/* BƯỚC 1: KHÔI PHỤC ẢNH CŨ (TÙY CHỌN) */}
       {/* ============================================================ */}
       {currentStep === 'restore' && (
-        <div className="space-y-6 animate-in fade-in duration-200">
+        <div className="space-y-6 wizard-step-anim">
           {!store.sessionId ? (
             /* Trạng thái trống (chưa có ảnh): 2 cột (lg: 1024px) */
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -256,19 +272,32 @@ export const SearchPage: React.FC = () => {
                     disabled={isUploading}
                   />
                   <label htmlFor="file-upload" className="cursor-pointer block">
-                    <div className="w-16 h-16 bg-[#F9FAFB] border border-[#E5E7EB] text-[#E8804A] rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform shadow-xs">
-                      {isUploading ? (
-                        <Loader2 className="w-8 h-8 animate-spin text-[#E8804A]" />
-                      ) : (
-                        <UploadCloud className="w-8 h-8" />
-                      )}
-                    </div>
-                    <h3 className="text-base font-bold text-[#111827] mb-1.5">
-                      {isUploading ? 'Đang tải và phát hiện khuôn mặt...' : 'Chọn hoặc kéo thả ảnh cần tìm'}
-                    </h3>
-                    <p className="text-xs text-[#6B7280] max-w-md mx-auto">
-                      Hỗ trợ định dạng PNG, JPG, JPEG. Hệ thống sẽ tự động nhận diện và căn chỉnh khuôn mặt chuẩn FFHQ 256×256.
-                    </p>
+                    {isUploading ? (
+                      <div className="py-2 space-y-4">
+                        <div className="flex flex-col items-center justify-center space-y-3">
+                          <Skeleton className="w-24 h-24 rounded-2xl mx-auto shadow-inner" />
+                          <div className="space-y-2 w-full max-w-xs mx-auto">
+                            <Skeleton className="h-4 w-3/4 mx-auto rounded" />
+                            <Skeleton className="h-3 w-1/2 mx-auto rounded" />
+                          </div>
+                        </div>
+                        <p className="text-xs font-semibold text-[#E8804A] animate-pulse">
+                          Đang tải ảnh và nhận diện khuôn mặt FFHQ...
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="w-16 h-16 bg-[#F9FAFB] border border-[#E5E7EB] text-[#E8804A] rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform shadow-xs">
+                          <UploadCloud className="w-8 h-8" />
+                        </div>
+                        <h3 className="text-base font-bold text-[#111827] mb-1.5">
+                          Chọn hoặc kéo thả ảnh cần tìm
+                        </h3>
+                        <p className="text-xs text-[#6B7280] max-w-md mx-auto">
+                          Hỗ trợ định dạng PNG, JPG, JPEG. Hệ thống sẽ tự động nhận diện và căn chỉnh khuôn mặt chuẩn FFHQ 256×256.
+                        </p>
+                      </>
+                    )}
                   </label>
 
                   {uploadError && (
@@ -366,7 +395,7 @@ export const SearchPage: React.FC = () => {
       {/* BƯỚC 2: SINH ẢNH & ĐỐI SOÁT */}
       {/* ============================================================ */}
       {currentStep === 'generate' && (
-        <div className="space-y-6 animate-in fade-in duration-200">
+        <div className="space-y-6 wizard-step-anim">
           {store.jobStatus === 'running' ? (
             /* Khi bấm chạy: Tiến trình 2 cột */
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -404,7 +433,7 @@ export const SearchPage: React.FC = () => {
                       Đối tượng: {store.genderWord === 'man' ? 'Nam' : 'Nữ'} • {store.initialAge ?? store.manualAge} tuổi
                     </p>
                     <p className="text-[11px] text-[#3B82C7] font-mono truncate">
-                      Job ID: {store.jobId || store.sessionId || 'job_fading_active'}
+                      Job ID: {store.jobId || 'Đang tạo tiến trình...'}
                     </p>
                   </div>
                 </div>
@@ -438,64 +467,60 @@ export const SearchPage: React.FC = () => {
               </button>
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                {/* Cột trái (~60% / lg:col-span-7): Form nhập liệu */}
-                <div className="lg:col-span-7 space-y-5">
+                {/* Cột trái (~58% / lg:col-span-7): Form chọn tuổi, giới tính & Thư mục gallery */}
+                <div className="lg:col-span-7 space-y-6">
                   <AgeInputForm />
                   <GalleryPicker />
                 </div>
 
-                {/* Cột phải (~40% / lg:col-span-5): Card Tóm tắt trước khi chạy + Nút CTA chính */}
-                <div className="lg:col-span-5 bg-white border border-[#E5E7EB] rounded-xl p-5 sm:p-6 shadow-xs space-y-4 lg:sticky lg:top-6">
-                  <div className="border-b border-[#E5E7EB] pb-3">
-                    <h4 className="text-sm font-bold text-[#111827]">Tóm tắt trước khi chạy</h4>
-                    <p className="text-xs text-[#6B7280] mt-0.5">Xác nhận cấu hình trước khi khởi động pipeline FADING</p>
+                {/* Cột phải (~42% / lg:col-span-5): Card tóm tắt cấu hình & Nút CTA chính */}
+                <div className="lg:col-span-5 bg-white border border-[#E5E7EB] rounded-2xl p-5 sm:p-6 shadow-xs space-y-5 lg:sticky lg:top-6">
+                  <div className="border-b border-[#E5E7EB] pb-3.5">
+                    <h4 className="text-sm font-bold text-[#111827]">Tóm tắt cấu hình đối soát</h4>
+                    <p className="text-xs text-[#6B7280] mt-0.5">Kiểm tra thông số trước khi thực thi pipeline</p>
                   </div>
 
-                  <div className="flex items-center gap-3.5 p-3.5 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl">
-                    {croppedFaceFullUrl ? (
-                      <img
-                        src={croppedFaceFullUrl}
-                        alt="Selected Target Face"
-                        className="w-16 h-16 rounded-lg object-cover border-2 border-[#3B82C7] shadow-xs bg-white flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-lg bg-gray-100 border border-[#E5E7EB] flex items-center justify-center text-[10px] text-[#6B7280]">
-                        Chưa có ảnh
-                      </div>
-                    )}
-                    <div className="text-xs space-y-1 overflow-hidden">
-                      <p className="font-bold text-[#111827]">
-                        Đối tượng: {store.genderWord === 'man' ? 'Nam (Man / Boy)' : 'Nữ (Woman / Girl)'}
-                      </p>
-                      <p className="text-[#6B7280]">
-                        Tuổi lúc chụp:{' '}
-                        <span className="font-semibold text-[#E8804A]">
-                          {store.initialAge ?? store.manualAge} tuổi
-                        </span>
-                      </p>
-                      <p className="text-[11px] text-[#6B7280]">
-                        Xác định:{' '}
-                        {store.ageMode === 'manual' ? 'Nhập chính xác' : 'MiVOLO AI ước tính'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 text-xs">
+                  {/* Danh sách thông số tóm tắt */}
+                  <div className="space-y-3 text-xs">
                     <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
-                      <span className="text-[#6B7280]">Thư viện đối soát:</span>
-                      <span
-                        className="font-mono text-[#111827] text-right truncate max-w-[170px]"
-                        title={store.galleryDir || 'Mặc định (test_gallery)'}
-                      >
-                        {store.galleryDir
-                          ? store.galleryDir.split(/[\\/]/).pop() || store.galleryDir
-                          : 'Mặc định (test_gallery)'}
+                      <span className="text-[#6B7280]">Khuôn mặt mục tiêu:</span>
+                      <span className="font-semibold text-[#111827]">
+                        {store.selectedFaceIdx !== null ? `Mặt #${store.selectedFaceIdx + 1}` : 'Chưa chọn'}
                       </span>
                     </div>
+
                     <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
-                      <span className="text-[#6B7280]">Dải tuổi sẽ sinh:</span>
-                      <span className="text-[#111827] font-mono">15 - 70 tuổi (8 mốc)</span>
+                      <span className="text-[#6B7280]">Khôi phục CodeFormer:</span>
+                      <span className="font-semibold text-[#3B82C7]">
+                        {completedSteps.includes('restore') ? 'Đã kích hoạt' : 'Bỏ qua (Dùng gốc)'}
+                      </span>
                     </div>
+
+                    <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
+                      <span className="text-[#6B7280]">Giới tính đối tượng:</span>
+                      <span className="font-semibold text-[#111827] capitalize">
+                        {store.genderWord === 'man' ? 'Nam' : 'Nữ'}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
+                      <span className="text-[#6B7280]">Tuổi đối tượng lúc mất tích:</span>
+                      <span className="font-semibold text-[#E8804A] font-mono">
+                        {store.ageMode === 'manual'
+                          ? `${store.manualAge} tuổi (Tự điền)`
+                          : store.initialAge !== null
+                          ? `~${store.initialAge} tuổi (MiVOLO)`
+                          : 'Chưa xác định'}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
+                      <span className="text-[#6B7280]">Thư mục ảnh Gallery:</span>
+                      <span className="font-mono text-[#111827] truncate max-w-[200px]" title={store.galleryDir || ''}>
+                        {store.galleryDir ? store.galleryDir.split('/').pop() || store.galleryDir : 'Mặc định (Test Gallery)'}
+                      </span>
+                    </div>
+
                     <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
                       <span className="text-[#6B7280]">Quy trình xử lý:</span>
                       <span className="text-[#3B82C7] font-mono">Inversion → Edit → FAISS</span>
@@ -508,7 +533,7 @@ export const SearchPage: React.FC = () => {
                     data-testid="run-pipeline-btn"
                     onClick={handleRun}
                     disabled={!isReadyToRun}
-                    className="w-full flex items-center justify-center gap-2 bg-[#E8804A] hover:bg-[#D97706] text-white font-bold py-3.5 px-5 rounded-xl transition-all shadow-xs hover:shadow disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-full flex items-center justify-center gap-2 bg-[#E8804A] hover:bg-[#D97706] text-white font-bold py-3.5 px-5 rounded-xl transition-all shadow-xs hover:shadow disabled:opacity-40 disabled:cursor-not-allowed hover-lift cursor-pointer"
                   >
                     <Play className="w-4 h-4 fill-current" />
                     <span>Chạy Pipeline FADING</span>
@@ -527,7 +552,7 @@ export const SearchPage: React.FC = () => {
       {/* BƯỚC 3: KẾT QUẢ ĐỐI SOÁT */}
       {/* ============================================================ */}
       {currentStep === 'results' && (
-        <div className="space-y-6 animate-in fade-in duration-200">
+        <div className="space-y-6 wizard-step-anim">
           <div className="flex items-center justify-between">
             <button
               type="button"

@@ -40,7 +40,7 @@ export const AgeInputForm: React.FC = () => {
         </label>
         <div className="flex gap-3">
           <label
-            className={`flex-1 flex items-center justify-center gap-2 cursor-pointer text-xs font-medium py-2.5 px-3 rounded-lg border transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 cursor-pointer text-xs font-medium py-2.5 px-3 rounded-lg border transition-all hover-lift ${
               store.genderWord === 'man'
                 ? 'bg-white border-[#E8804A] text-[#111827] shadow-xs ring-1 ring-[#E8804A]/30'
                 : 'bg-[#F9FAFB] border-[#E5E7EB] text-[#6B7280] hover:border-[#D1D5DB]'
@@ -57,7 +57,7 @@ export const AgeInputForm: React.FC = () => {
             <span>Nam (Man / Boy)</span>
           </label>
           <label
-            className={`flex-1 flex items-center justify-center gap-2 cursor-pointer text-xs font-medium py-2.5 px-3 rounded-lg border transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 cursor-pointer text-xs font-medium py-2.5 px-3 rounded-lg border transition-all hover-lift ${
               store.genderWord === 'woman'
                 ? 'bg-white border-[#E8804A] text-[#111827] shadow-xs ring-1 ring-[#E8804A]/30'
                 : 'bg-[#F9FAFB] border-[#E5E7EB] text-[#6B7280] hover:border-[#D1D5DB]'
@@ -83,7 +83,7 @@ export const AgeInputForm: React.FC = () => {
         </label>
         <div className="flex flex-col gap-2">
           <label
-            className={`flex items-center gap-2 cursor-pointer text-xs p-3 rounded-lg border transition-all ${
+            className={`flex items-center gap-2 cursor-pointer text-xs p-3 rounded-lg border transition-all hover-lift ${
               store.ageMode === 'manual'
                 ? 'bg-white border-[#E8804A] text-[#111827] shadow-xs ring-1 ring-[#E8804A]/30'
                 : 'bg-[#F9FAFB] border-[#E5E7EB] text-[#6B7280] hover:border-[#D1D5DB]'
@@ -101,7 +101,7 @@ export const AgeInputForm: React.FC = () => {
           </label>
 
           <label
-            className={`flex items-center gap-2 cursor-pointer text-xs p-3 rounded-lg border transition-all ${
+            className={`flex items-center gap-2 cursor-pointer text-xs p-3 rounded-lg border transition-all hover-lift ${
               store.ageMode === 'mivolo'
                 ? 'bg-white border-[#E8804A] text-[#111827] shadow-xs ring-1 ring-[#E8804A]/30'
                 : 'bg-[#F9FAFB] border-[#E5E7EB] text-[#6B7280] hover:border-[#D1D5DB]'
@@ -115,7 +115,7 @@ export const AgeInputForm: React.FC = () => {
               onChange={() => handleModeChange('mivolo')}
               className="accent-[#E8804A]"
             />
-            <span>Không, nhờ hệ thống ước tính tự động (MiVOLO AI)</span>
+            <span>Chưa rõ tuổi, dùng mô hình MiVOLO AI ước tính tự động</span>
           </label>
         </div>
       </div>

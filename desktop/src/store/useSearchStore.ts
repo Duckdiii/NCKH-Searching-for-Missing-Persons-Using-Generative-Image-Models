@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { FaceBox, JobHistoryItem, JobResult } from '../types/api';
+import { ToastData } from '../components/Toast';
 
 const HISTORY_STORAGE_KEY = 'fading_session_history';
 
@@ -62,6 +63,10 @@ interface SearchState {
   jobStage: string;
   jobResult: JobResult | null;
   jobError: string | null;
+
+  // Toast notification
+  toast: ToastData | null;
+  setToast: (toast: ToastData | null) => void;
 
   // Actions
   setBackendPort: (port: number) => void;
@@ -129,6 +134,9 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   jobResult: null,
   jobError: null,
 
+  toast: null,
+  setToast: (toast) => set({ toast }),
+
   setBackendPort: (port) => set({ backendPort: port }),
   setCheckpoints: (ready, missing, checkpointName, appVersion) => set({
     checkpointReady: ready,
@@ -162,6 +170,9 @@ export const useSearchStore = create<SearchState>((set, get) => ({
         jobStatus: item.status,
         jobStage: item.stage,
         jobResult: item.result,
+        croppedPreviewUrl: item.cropped_preview_url || get().croppedPreviewUrl,
+        initialAge: item.initial_age ?? get().initialAge,
+        genderWord: (item.gender_word as any) || get().genderWord,
         isHistoricalView: true,
         currentWizardStep: 'results',
       });
@@ -226,6 +237,9 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       status: 'running',
       stage: 'specialization',
       timestamp: Date.now(),
+      cropped_preview_url: get().croppedPreviewUrl,
+      initial_age: get().initialAge ?? get().manualAge,
+      gender_word: get().genderWord,
     };
     get().addHistoryItem(newHistoryItem);
 
@@ -239,6 +253,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     });
   },
   updateJobProgress: (status, stage, result, error) => {
+    const prevStatus = get().jobStatus;
     const jobId = get().jobId;
     if (jobId) {
       const history = get().sessionHistory;
@@ -260,11 +275,34 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       }
     }
 
+    // Giai đoạn 3: Hiện Toast thông báo khi job hoàn tất lúc người dùng đang ở màn khác
+    if (status === 'done' && prevStatus === 'running') {
+      const isAway = get().isHistoricalView || get().currentWizardStep !== 'results';
+      if (isAway) {
+        const identityName = result?.top_identity || 'Đối tượng';
+        const scorePct = typeof result?.top_score === 'number'
+          ? `${(result.top_score * 100).toFixed(1)}%`
+          : null;
+        get().setToast({
+          id: String(Date.now()),
+          identityName,
+          scorePct,
+          onViewResult: () => {
+            set({
+              isHistoricalView: false,
+              jobResult: result || null,
+            });
+            get().setCurrentWizardStep('results');
+          },
+        });
+      }
+    }
+
     set({
       jobStatus: status,
       jobStage: stage,
-      jobResult: result || null,
-      jobError: error || null,
+      jobResult: result !== undefined ? (result || null) : get().jobResult,
+      jobError: error !== undefined ? (error || null) : null,
     });
   },
   resetForNewUpload: () => set({
@@ -279,7 +317,9 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     jobId: null,
     jobStatus: 'idle',
     jobResult: null,
-    jobError: null,
-    isHistoricalView: false,
   }),
 }));
+
+if (typeof window !== 'undefined') {
+  (window as any).__SEARCH_STORE__ = useSearchStore;
+}

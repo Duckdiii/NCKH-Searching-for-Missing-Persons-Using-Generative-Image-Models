@@ -197,14 +197,17 @@ def run_alignment(config: dict, embedder: FaceEmbedder, image_path: str) -> str:
     if image_bgr is None:
         raise ValueError(f"Khong doc duoc anh: {image_path}")
 
-    # Tiền xử lý theo chuẩn Kaggle 3: Adaptive Padding + Shades of Gray WB + CodeFormer
-    image_bgr, _ = preprocess_face_image(image_bgr, embedder=embedder)
-
     faces = embedder.detect_faces(image_bgr)
     if len(faces) == 0:
         raise ValueError(f"Align that bai: khong phat hien duoc khuon mat nao trong {image_path}")
 
-    aligned = align_to_ffhq(image_bgr, faces[0].kps, output_size=256)
+    # Tiền xử lý theo chuẩn Kaggle 3 & FG-NET batch: Adaptive Padding + Grayscale Check + Shades of Gray WB + CodeFormer
+    image_bgr, updated_kps = preprocess_face_image(
+        image_bgr, kps=faces[0].kps, bbox=faces[0].bbox, embedder=embedder
+    )
+
+    img_size = config.get("editing", {}).get("image_size", 512)
+    aligned = align_to_ffhq(image_bgr, updated_kps, output_size=img_size)
 
     output_dir = config["paths"]["output_dir"]
     os.makedirs(output_dir, exist_ok=True)
@@ -223,6 +226,7 @@ def run_inversion(config: dict, ckpt_dir: str, test_image_path: str, initial_age
         guidance_scale=config["inversion"]["guidance_scale"],
         num_inner_steps=config["inversion"]["num_inner_steps"],
         early_stop_epsilon=float(config["inversion"]["early_stop_epsilon"]),
+        image_size=config.get("inversion", {}).get("image_size", 512),
         debug_check_nan=config["debug"]["check_nan"],
     )
     z_T, null_embeddings, attention_maps = inverter.invert(test_image_path, initial_age, gender_word)
@@ -251,6 +255,7 @@ def run_editing(
         num_inference_steps=config["inversion"]["num_inference_steps"],
         guidance_scale=config["editing"]["guidance_scale"],
         attention_control_ratio=config["editing"]["attention_control_ratio"],
+        image_size=config.get("editing", {}).get("image_size", 512),
         use_local_blend=config["editing"].get("use_local_blend", True),
         local_blend_threshold=config["editing"].get("local_blend_threshold", 0.3),
         debug_check_nan=config["debug"]["check_nan"],

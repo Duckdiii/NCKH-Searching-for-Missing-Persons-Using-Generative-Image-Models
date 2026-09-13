@@ -33,10 +33,11 @@ specialization:
 
 # Module 2 - Null-text Inversion
 inversion:
-  num_inference_steps: 50  # NUM_DDIM_STEPS gốc (Mokady et al.) - giảm khi test cho nhanh
-  guidance_scale: 7.5
-  num_inner_steps: 10      # số vòng tối ưu null_t mỗi timestep
+  num_inference_steps: 50  # NUM_DDIM_STEPS gốc (Mokady et al.)
+  guidance_scale: 1.0      # Đặt 1.0 cho DDIM Inversion thuần túy để bảo toàn 100% phông nền và áo sọc gốc
+  num_inner_steps: 10      # 10 bước chuẩn FADING gốc (chống over-fitting / sáp hóa)
   early_stop_epsilon: 1.0e-5
+  image_size: 512
 
 # Module 3 - Editing
 # KHÔNG có num_inference_steps riêng ở đây - main.py LUÔN lấy inversion.num_inference_steps
@@ -45,10 +46,11 @@ inversion:
 # cấu hình độc lập nhưng ta chọn không dùng"). Nếu lệch, Editor raise ValueError ngay (xem
 # _validate_timesteps_available trong editing.py).
 editing:
-  guidance_scale: 7.5
+  guidance_scale: 4.0           # Module Editing giữ 4.0 để sinh nếp nhăn già hóa tự nhiên (photorealism)
   attention_control_ratio: 0.8  # t_M / T - tỷ lệ bước đầu áp dụng attention injection
   use_local_blend: true         # Cơ chế LocalBlend (Hertz et al.) bảo toàn nền và áo
   local_blend_threshold: 0.3    # Ngưỡng nhị phân hóa mặt nạ attention
+  image_size: 512
 
 # Module 4 - InsightFace Embedding
 embedding:

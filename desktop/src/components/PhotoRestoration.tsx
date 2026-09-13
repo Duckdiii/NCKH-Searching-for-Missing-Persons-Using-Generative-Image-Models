@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Sparkles, Sliders, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Skeleton } from './Skeleton';
 
 interface PhotoRestorationProps {
   originalFaceUrl: string;
@@ -13,6 +14,7 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
   const [fidelity, setFidelity] = useState<number>(0.7);
   const [whiteBalance, setWhiteBalance] = useState<boolean>(true);
   const [adaptivePadding, setAdaptivePadding] = useState<boolean>(true);
+  const [isImgLoaded, setIsImgLoaded] = useState<boolean>(false);
 
   // Before/After comparison slider position (0 - 100%)
   const [sliderPos, setSliderPos] = useState<number>(50);
@@ -73,11 +75,17 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
           onMouseDown={handleMouseDown}
           className="relative w-72 h-72 rounded-xl overflow-hidden cursor-ew-resize select-none border-2 border-[#E5E7EB] bg-[#F9FAFB] shadow-md"
         >
+          {/* Skeleton Shimmer while loading */}
+          {!isImgLoaded && (
+            <Skeleton className="absolute inset-0 w-full h-full z-20" />
+          )}
+
           {/* Layer AFTER (Ảnh đã khôi phục) */}
           <div className="absolute inset-0 w-full h-full overflow-hidden">
             <img
               src={originalFaceUrl}
               alt="Restored Face"
+              onLoad={() => setIsImgLoaded(true)}
               style={{
                 filter: `contrast(${105 + fidelity * 10}%) brightness(${100 + (whiteBalance ? 4 : 0)}%) saturate(${whiteBalance ? 108 : 100}%)`,
               }}
@@ -174,7 +182,7 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
         <button
           type="button"
           onClick={() => onConfirm(true, fidelity, { whiteBalance, adaptivePadding })}
-          className="flex-1 flex items-center justify-center gap-2 bg-[#E8804A] hover:bg-[#D97706] text-white font-bold text-xs py-3 px-4 rounded-xl transition-all shadow-xs hover:shadow"
+          className="flex-1 flex items-center justify-center gap-2 bg-[#E8804A] hover:bg-[#D97706] text-white font-bold text-xs py-3 px-4 rounded-xl transition-all shadow-xs hover:shadow hover-lift cursor-pointer"
         >
           <CheckCircle2 className="w-4 h-4" />
           <span>Dùng ảnh đã khôi phục</span>
@@ -183,10 +191,10 @@ export const PhotoRestoration: React.FC<PhotoRestorationProps> = ({
         <button
           type="button"
           onClick={() => onConfirm(false, fidelity, { whiteBalance, adaptivePadding })}
-          className="flex-1 flex items-center justify-center gap-2 bg-white hover:bg-[#F9FAFB] text-[#111827] font-medium text-xs py-3 px-4 rounded-xl border border-[#E5E7EB] transition-all shadow-xs"
+          className="flex-1 flex items-center justify-center gap-2 bg-white hover:bg-[#F9FAFB] text-[#111827] font-medium text-xs py-3 px-4 rounded-xl border border-[#E5E7EB] transition-all shadow-xs hover-lift cursor-pointer"
         >
           <span>Bỏ qua, dùng ảnh gốc</span>
-          <ArrowRight className="w-3.5 h-3.5 text-[#6B7280]" />
+          <ArrowRight className="w-4 h-4 text-[#6B7280]" />
         </button>
       </div>
     </div>

@@ -48,3 +48,41 @@ def test_preprocess_face_image_pipeline():
     assert updated_kps is not None
     # Keypoints should be offset by pad_w=20, pad_h=20
     np.testing.assert_allclose(updated_kps, kps + np.array([20, 20]))
+
+
+def test_is_effectively_grayscale_distinguishes_gray_and_color():
+    from src.utils.face_enhancement import is_effectively_grayscale
+
+    # Pure grayscale image (R=G=B)
+    gray_img = np.ones((100, 100, 3), dtype=np.uint8) * 128
+    assert is_effectively_grayscale(gray_img, threshold=6.0) is True
+
+    # Slightly noisy monochrome image (diff < 6.0)
+    noisy_gray = gray_img.copy()
+    noisy_gray[:, :, 0] += 2
+    noisy_gray[:, :, 2] -= 2
+    assert is_effectively_grayscale(noisy_gray, threshold=6.0) is True
+
+    # Clear color image (diff > 6.0)
+    color_img = gray_img.copy()
+    color_img[:, :, 0] = 200
+    color_img[:, :, 2] = 50
+    assert is_effectively_grayscale(color_img, threshold=6.0) is False
+
+
+def test_preprocess_face_image_with_direct_bbox_and_grayscale():
+    from src.utils.face_enhancement import preprocess_face_image
+
+    # 400x400 monochrome image with face covering >85% (occupancy trigger)
+    gray_img_bgr = np.ones((400, 400, 3), dtype=np.uint8) * 120
+    bbox = (20.0, 20.0, 380.0, 380.0)  # 360/400 = 90% occupancy
+    kps = np.array([[150, 150], [250, 150], [200, 220], [170, 280], [230, 280]], dtype=np.float32)
+
+    preprocessed_bgr, updated_kps = preprocess_face_image(gray_img_bgr, kps=kps, bbox=bbox)
+    # Should pad 20% = 80px on each side -> 400 + 160 = 560x560
+    assert preprocessed_bgr.shape == (560, 560, 3)
+    np.testing.assert_allclose(updated_kps, kps + np.array([80, 80]))
+    # For grayscale, colors should remain completely neutral (R=G=B)
+    assert np.all(preprocessed_bgr[:, :, 0] == preprocessed_bgr[:, :, 1])
+    assert np.all(preprocessed_bgr[:, :, 1] == preprocessed_bgr[:, :, 2])
+

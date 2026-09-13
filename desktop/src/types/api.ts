@@ -42,6 +42,15 @@ export interface JobStatus {
   result?: JobResult;
 }
 
+export interface PipelineParams {
+  num_inference_steps?: number;
+  guidance_scale?: number;
+  attention_control_ratio?: number;
+  checkpoint_name?: string;
+  embedding_model?: string;
+  rejection_threshold?: number;
+}
+
 export interface JobResult {
   job_id: string;
   status: 'done' | 'error';
@@ -52,6 +61,7 @@ export interface JobResult {
   top_score: number;
   best_age?: number | null;
   matched_gallery_image?: string | null;
+  pipeline_params?: PipelineParams;
   error_message?: string | null;
 }
 
@@ -73,4 +83,7 @@ export interface JobHistoryItem {
   result?: JobResult | null;
   error_message?: string | null;
   timestamp?: number;
+  cropped_preview_url?: string | null;
+  initial_age?: number | null;
+  gender_word?: string | null;
 }

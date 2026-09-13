@@ -115,7 +115,7 @@ export const JobProgressBlock: React.FC<JobProgressBlockProps> = ({
         </div>
         <div className="w-full h-2.5 bg-[#F3F4F6] rounded-full overflow-hidden border border-[#E5E7EB]">
           <div
-            className="h-full bg-[#E8804A] transition-all duration-500 rounded-full"
+            className="h-full bg-[#E8804A] progress-bar-smooth rounded-full"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -166,7 +166,7 @@ export const JobProgressBlock: React.FC<JobProgressBlockProps> = ({
         <button
           type="button"
           onClick={onCancel}
-          className="flex items-center gap-1.5 text-xs text-[#DC2626] hover:text-white hover:bg-[#DC2626] bg-white border border-[#DC2626] px-4 py-2 rounded-lg transition-all font-semibold shadow-xs"
+          className="flex items-center gap-1.5 text-xs text-[#DC2626] hover:text-white hover:bg-[#DC2626] bg-white border border-[#DC2626] px-4 py-2 rounded-lg transition-all font-semibold shadow-xs hover-lift"
         >
           <XCircle className="w-3.5 h-3.5" />
           <span>Hủy tiến trình</span>

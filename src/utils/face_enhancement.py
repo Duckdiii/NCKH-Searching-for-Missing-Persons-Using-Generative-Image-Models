@@ -18,12 +18,23 @@ from PIL import Image
 from scipy.ndimage import gaussian_filter
 
 
+def is_effectively_grayscale(image_rgb: np.ndarray, threshold: float = 6.0) -> bool:
+    """Bước 2a (từ batch_preprocess_fgnet.ipynb): Kiểm tra ảnh có phải là ảnh đen-trắng/xám thực tế không.
+    Tính độ chênh lệch màu trung bình giữa các kênh R-G và G-B.
+    Nếu chênh lệch < threshold (mặc định 6.0) -> Ảnh xám -> Bỏ qua White Balance để bảo toàn tông xám gốc."""
+    img_float = image_rgb.astype(np.float64)
+    diff_rg = np.abs(img_float[:, :, 0] - img_float[:, :, 1]).mean()
+    diff_gb = np.abs(img_float[:, :, 1] - img_float[:, :, 2]).mean()
+    return float((diff_rg + diff_gb) / 2.0) < threshold
+
+
 def apply_adaptive_padding(
     image_rgb: np.ndarray,
     face_occupancy_thresh: float = 0.85,
     pad_ratio: float = 0.20,
     border_mode: str = "replicate",
     embedder=None,
+    bbox: Optional[Tuple[float, float, float, float]] = None,
     return_offset: bool = False
 ) -> Tuple:
     """Bước 1: Adaptive Padding với cv2.BORDER_REPLICATE.
@@ -31,11 +42,20 @@ def apply_adaptive_padding(
     thêm padding lặp mép 20% mỗi cạnh để tránh cắt lẹm cằm/tai khi align."""
     H, W = image_rgb.shape[:2]
     faces = []
-    if embedder is not None and hasattr(embedder, "detect_faces"):
-        try:
-            faces = embedder.detect_faces(image_rgb)
-        except Exception:
-            pass
+    if bbox is not None:
+        faces.append({"bbox": bbox})
+    elif embedder is not None:
+        img_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+        if hasattr(embedder, "get"):
+            try:
+                faces = embedder.get(img_bgr)
+            except Exception:
+                pass
+        elif hasattr(embedder, "detect_faces"):
+            try:
+                faces = embedder.detect_faces(img_bgr)
+            except Exception:
+                pass
 
     if len(faces) == 0:
         try:
@@ -55,8 +75,8 @@ def apply_adaptive_padding(
             if isinstance(f, dict)
             else (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
         ))
-        bbox = face["bbox"] if isinstance(face, dict) else face.bbox
-        x1, y1, x2, y2 = bbox
+        bbox_val = face["bbox"] if isinstance(face, dict) else face.bbox
+        x1, y1, x2, y2 = bbox_val
         w_face, h_face = x2 - x1, y2 - y1
         occ_w = w_face / W
         occ_h = h_face / H
@@ -90,23 +110,32 @@ def apply_adaptive_padding(
 def preprocess_face_image(
     image_bgr: np.ndarray,
     kps: Optional[np.ndarray] = None,
+    bbox: Optional[Tuple[float, float, float, float]] = None,
     embedder=None
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
-    """Pipeline tiền xử lý khuôn mặt (Cell 19 FADING_pipeline_kaggle_3.ipynb):
+    """Pipeline tiền xử lý khuôn mặt (Đồng bộ từ batch_preprocess_fgnet.ipynb & Kaggle 3):
     1. Adaptive Padding (replicate) nếu mặt chiếm >= 85% hoặc sát viền
-    2. Shades of Gray White Balance (Minkowski p=6, kẹp gain [0.75, 1.30])
-    3. CodeFormer Face Restoration (w=0.7, fallback an toàn nếu không cài đặt CLI)
+    2. Kiểm tra Grayscale (is_effectively_grayscale) -> Nếu ảnh xám thì bỏ qua White Balance
+    3. Shades of Gray White Balance (Minkowski p=6, kẹp gain [0.75, 1.30])
+    4. CodeFormer Face Restoration (w=0.7, fallback an toàn nếu không cài đặt CLI)
     Trả về: (preprocessed_bgr, updated_kps)
     """
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     padded_rgb, was_padded, (pad_w, pad_h) = apply_adaptive_padding(
-        image_rgb, border_mode="replicate", embedder=embedder, return_offset=True
+        image_rgb, border_mode="replicate", bbox=bbox, embedder=embedder, return_offset=True
     )
     new_kps = kps.copy() if kps is not None else None
     if was_padded and new_kps is not None:
         new_kps = new_kps + np.array([pad_w, pad_h], dtype=new_kps.dtype)
 
-    wb_rgb = apply_white_balance(padded_rgb, p=6, max_shift_thresh=35.0)
+    # Bước 2: Kiểm tra Grayscale trước White Balance (chuẩn batch_preprocess_fgnet.ipynb)
+    was_grayscale = is_effectively_grayscale(padded_rgb, threshold=6.0)
+    if was_grayscale:
+        wb_rgb = padded_rgb
+    else:
+        wb_rgb = apply_white_balance(padded_rgb, p=6, max_shift_thresh=35.0)
+
+    # Bước 3: Phục hồi CodeFormer (w=0.7)
     cf_rgb = run_codeformer(wb_rgb, fidelity_weight=0.7)
     preprocessed_bgr = cv2.cvtColor(cf_rgb, cv2.COLOR_RGB2BGR)
     return preprocessed_bgr, new_kps

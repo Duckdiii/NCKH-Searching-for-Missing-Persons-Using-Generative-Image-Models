@@ -6,19 +6,27 @@ import { FirstRunSetup } from './components/FirstRunSetup';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
+import { Toast } from './components/Toast';
 import { Loader2 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const { checkpointReady, isCheckingHealth, currentWizardStep } = useSearchStore();
+  const { checkpointReady, isCheckingHealth, currentWizardStep, toast, setToast } = useSearchStore();
   const { checkHealth, fetchJobsHistory } = useSearchApi();
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('preview')) {
-      const s = useSearchStore.getState();
-      s.setCheckpoints(true, [], 'specialized_unet (stable-diffusion-v1-5)', '1.0.0');
-      s.setIsCheckingHealth(false);
+    // Chỉ kích hoạt preview mode trong môi trường phát triển (DEV), tuyệt đối không chạy ở production
+    if (import.meta.env.DEV) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('preview')) {
+        const s = useSearchStore.getState();
+        s.setCheckpoints(true, [], 'specialized_unet (stable-diffusion-v1-5)', '1.0.0');
+        s.setIsCheckingHealth(false);
+
+      if (params.get('history') === 'empty') {
+        useSearchStore.setState({ sessionHistory: [] });
+        return;
+      }
 
       // Seed mock history in preview mode if empty
       if (s.sessionHistory.length === 0) {
@@ -43,7 +51,23 @@ export const App: React.FC = () => {
           timestamp: Date.now() - 3600000 * 24,
         });
       }
-      return;
+
+      // Trigger sample toast in preview mode if requested
+      if (params.get('preview') === 'toast' || params.has('toast')) {
+        setTimeout(() => {
+          s.setToast({
+            id: 'toast_preview_1',
+            identityName: 'MP_2023_0982',
+            scorePct: '84.7%',
+            onViewResult: () => {
+              s.setCurrentWizardStep('results');
+            },
+          });
+        }, 100);
+      }
+
+        return;
+      }
     }
     checkHealth();
     fetchJobsHistory();
@@ -101,6 +125,9 @@ export const App: React.FC = () => {
           useSearchStore.getState().setCurrentWizardStep('results');
         }}
       />
+
+      {/* Toast Notification (Phase 3) */}
+      <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 };

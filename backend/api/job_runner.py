@@ -63,7 +63,8 @@ def set_done(
     top_identity: str,
     top_score: float,
     best_age: Optional[int] = None,
-    matched_gallery_image: Optional[str] = None
+    matched_gallery_image: Optional[str] = None,
+    pipeline_params: Optional[Dict[str, Any]] = None
 ) -> None:
     # Convert file paths to HTTP-accessible relative URLs
     # e.g. "outputs/jobs/123/age_30.png" -> "/outputs/jobs/123/age_30.png"
@@ -86,6 +87,7 @@ def set_done(
         "top_score": top_score,
         "best_age": best_age,
         "matched_gallery_image": matched_gallery_image,
+        "pipeline_params": pipeline_params or {},
         "error_message": None
     }
     job = get_job(job_id)
@@ -192,6 +194,16 @@ def run_pipeline_job(
                         matched_gallery_image = "/" + norm
                     break
 
+        pipeline_params = {
+            "num_inference_steps": job_config.get("inversion", {}).get("num_inference_steps", 50),
+            "guidance_scale": job_config.get("editing", {}).get("guidance_scale", 4.0),
+            "inversion_guidance_scale": job_config.get("inversion", {}).get("guidance_scale", 1.0),
+            "attention_control_ratio": job_config.get("editing", {}).get("attention_control_ratio", 0.8),
+            "image_size": job_config.get("editing", {}).get("image_size", 512),
+            "checkpoint_name": "specialized_unet (stable-diffusion-v1-5)",
+            "embedding_model": job_config.get("embedding", {}).get("model_name", "buffalo_l"),
+            "rejection_threshold": job_config.get("search", {}).get("rejection_threshold", 0.6),
+        }
         set_done(
             job_id,
             edited_images,
@@ -200,7 +212,8 @@ def run_pipeline_job(
             top_identity,
             top_score,
             best_age=best_age,
-            matched_gallery_image=matched_gallery_image
+            matched_gallery_image=matched_gallery_image,
+            pipeline_params=pipeline_params
         )
 
     except Exception as e:

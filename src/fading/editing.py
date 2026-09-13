@@ -26,7 +26,7 @@ from src.utils.debug import check_nan
 from src.utils.prompts import build_prompt_alpha, build_prompt_tau
 
 NUM_DDIM_STEPS_DEFAULT = 50
-GUIDANCE_SCALE_DEFAULT = 7.5
+GUIDANCE_SCALE_DEFAULT = 4.0  # Mức cân bằng chuẩn của FADING để sinh nếp nhăn già hóa (photorealism)
 ATTENTION_CONTROL_RATIO_DEFAULT = 0.8  # t_M / T
 USE_LOCAL_BLEND_DEFAULT = True
 LOCAL_BLEND_THRESHOLD_DEFAULT = 0.3
@@ -212,7 +212,7 @@ class Editor:
         num_inference_steps: int = NUM_DDIM_STEPS_DEFAULT,
         guidance_scale: float = GUIDANCE_SCALE_DEFAULT,
         attention_control_ratio: float = ATTENTION_CONTROL_RATIO_DEFAULT,
-        image_size: int = 256,
+        image_size: int = 512,
         use_local_blend: bool = USE_LOCAL_BLEND_DEFAULT,
         local_blend_threshold: float = LOCAL_BLEND_THRESHOLD_DEFAULT,
         debug_check_nan: bool = False,
@@ -310,6 +310,43 @@ class Editor:
                 f"NullTextInverter.invert() (Module 2) để sinh ra attention_maps này - 2 module "
                 f"BẮT BUỘC phải dùng cùng 1 giá trị num_inference_steps."
             )
+
+    def reconstruct(
+        self,
+        z_T: torch.Tensor,
+        null_embeddings: List[torch.Tensor],
+        initial_age: int,
+        gender_word: str,
+        guidance_scale: Optional[float] = 1.0,
+    ) -> Image.Image:
+        """
+        Tái tạo lại ảnh ban đầu từ z_T và null_embeddings.
+        Để kiểm tra độ trung thực (Sanity-Check) mà không bị CFG bóp méo thành tranh vẽ,
+        sử dụng chính trajectory đảo ngược chuẩn xác của DDIM (mặc định guidance_scale=1.0 theo ODE gốc).
+        Đồng bộ từ Cell 15 của FADING_pipeline_kaggle_3.ipynb.
+        """
+        if self.unet is None or self.vae is None:
+            self._load_models()
+        g_scale = 1.0 if guidance_scale is None else guidance_scale
+        p_alpha = build_prompt_alpha(initial_age, gender_word)
+        cond_embedding = self._encode_text(p_alpha)
+        latent = z_T.clone()
+        timesteps = self.scheduler.timesteps
+
+        with torch.no_grad():
+            for i in range(self.num_inference_steps):
+                t = timesteps[i]
+                null_t = null_embeddings[i]
+
+                # Dự đoán nhiễu với null-text optimization
+                noise_uncond = self._predict_noise(latent, t, null_t)
+                noise_cond = self._predict_noise(latent, t, cond_embedding)
+
+                # Áp dụng guidance_scale đồng bộ với quá trình Inversion (1.0 theo chuẩn ODE vi phân)
+                noise_pred = noise_uncond + g_scale * (noise_cond - noise_uncond)
+                latent = self._ddim_prev_step(noise_pred, t, latent)
+
+        return self._decode_latent_to_image(latent)
 
     def edit(
         self,

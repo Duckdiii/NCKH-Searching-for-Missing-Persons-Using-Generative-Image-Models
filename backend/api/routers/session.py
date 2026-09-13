@@ -96,11 +96,13 @@ def select_face(session_id: str, req: SelectFaceRequest):
         float(chosen_face.det_score)
     )
 
-    # Tiền xử lý theo chuẩn Kaggle 3: Adaptive Padding + Shades of Gray WB + CodeFormer
-    preprocessed_bgr, updated_kps = preprocess_face_image(session.image_bgr, kps=chosen_face.kps)
+    # Tiền xử lý theo chuẩn Kaggle 3 & FG-NET batch: Adaptive Padding + Shades of Gray WB + CodeFormer
+    preprocessed_bgr, updated_kps = preprocess_face_image(
+        session.image_bgr, kps=chosen_face.kps, bbox=chosen_face.bbox
+    )
 
     # Căn chỉnh FFHQ chuẩn
-    cropped = align_to_ffhq(preprocessed_bgr, updated_kps, output_size=256)
+    cropped = align_to_ffhq(preprocessed_bgr, updated_kps, output_size=512)
     os.makedirs("outputs/app_uploads", exist_ok=True)
     cropped_filename = f"{session_id}_crop.png"
     cropped_path = os.path.join("outputs", "app_uploads", cropped_filename)

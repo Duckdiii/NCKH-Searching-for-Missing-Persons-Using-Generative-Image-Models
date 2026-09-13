@@ -44,7 +44,7 @@ def _ffhq_quad(eye_left: np.ndarray, eye_right: np.ndarray, mouth_left: np.ndarr
     return np.stack([c0 - x - y, c0 - x + y, c0 + x + y, c0 + x - y])
 
 
-def align_to_ffhq(image_bgr: np.ndarray, kps: np.ndarray, output_size: int = 256) -> np.ndarray:
+def align_to_ffhq(image_bgr: np.ndarray, kps: np.ndarray, output_size: int = 512) -> np.ndarray:
     """Align ảnh về output_size x output_size theo ĐÚNG công thức gốc FFHQ (xem module
     docstring). `kps`: 5 điểm insightface (mắt trái, mắt phải, mũi, khoé miệng trái, khoé
     miệng phải) - CHỈ dùng 4 điểm mắt+miệng, bỏ qua điểm mũi (công thức gốc không cần).
