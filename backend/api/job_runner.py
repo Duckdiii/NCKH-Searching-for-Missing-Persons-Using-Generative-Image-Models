@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import os
+import shutil
 import threading
 import traceback
 from typing import Any, Dict, List, Optional
@@ -64,7 +65,9 @@ def set_done(
     top_score: float,
     best_age: Optional[int] = None,
     matched_gallery_image: Optional[str] = None,
-    pipeline_params: Optional[Dict[str, Any]] = None
+    pipeline_params: Optional[Dict[str, Any]] = None,
+    cropped_image: Optional[str] = None,
+    age_scores: Optional[Dict[int, float]] = None
 ) -> None:
     # Convert file paths to HTTP-accessible relative URLs
     # e.g. "outputs/jobs/123/age_30.png" -> "/outputs/jobs/123/age_30.png"
@@ -77,16 +80,21 @@ def set_done(
             rel_path = f"/outputs/{os.path.basename(fpath)}"
         web_images[int(age)] = rel_path
 
+    if not cropped_image and os.path.exists(os.path.join("outputs", "jobs", job_id, "input_crop.png")):
+        cropped_image = f"/outputs/jobs/{job_id}/input_crop.png"
+
     result = {
         "job_id": job_id,
         "status": "done",
         "edited_images": web_images,
+        "age_scores": age_scores or {},
         "final_scores": final_scores,
         "accepted": accepted,
         "top_identity": top_identity,
         "top_score": top_score,
         "best_age": best_age,
         "matched_gallery_image": matched_gallery_image,
+        "cropped_image": cropped_image,
         "pipeline_params": pipeline_params or {},
         "error_message": None
     }
@@ -136,6 +144,9 @@ def run_pipeline_job(
         os.makedirs(job_output_dir, exist_ok=True)
         job_config["paths"]["output_dir"] = job_output_dir
 
+        if session.cropped_path and os.path.exists(session.cropped_path):
+            shutil.copy2(session.cropped_path, os.path.join(job_output_dir, "input_crop.png"))
+
         if gallery_dir:
             job_config["paths"]["gallery_test_dir"] = gallery_dir
 
@@ -155,6 +166,8 @@ def run_pipeline_job(
 
         # Stage 3: Editing
         update_stage(job_id, "editing")
+        photo_year = session.photo_year if session.photo_year is not None else 2010
+        target_ages = pipeline.compute_target_ages(session.initial_age, photo_year)
         edited_images = pipeline.run_editing(
             job_config,
             ckpt_dir,
@@ -162,20 +175,29 @@ def run_pipeline_job(
             null_emb,
             attn,
             session.gender_word,
-            initial_age=session.initial_age
+            initial_age=session.initial_age,
+            target_ages=target_ages,
         )
 
         # Stage 4: Embedding + FAISS Search
         update_stage(job_id, "search")
-        final_scores, accepted, top_identity, top_score = pipeline.run_embedding_and_search(
+        search_res = pipeline.run_embedding_and_search(
             job_config,
-            edited_images
+            edited_images,
+            return_age_scores=True
         )
+        if len(search_res) == 5:
+            final_scores, accepted, top_identity, top_score, age_scores = search_res
+        else:
+            final_scores, accepted, top_identity, top_score = search_res
+            age_scores = {}
 
         # Determine best matching age and copy gallery match image
         matched_gallery_image = None
         best_age = None
-        if edited_images:
+        if age_scores:
+            best_age = max(age_scores.items(), key=lambda kv: kv[1])[0]
+        elif edited_images:
             sorted_ages = sorted([int(a) for a in edited_images.keys()])
             best_age = sorted_ages[len(sorted_ages) // 2] if sorted_ages else None
 
@@ -184,7 +206,6 @@ def run_pipeline_job(
             for ext in [".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"]:
                 cand = os.path.join(active_gallery_dir, f"{top_identity}{ext}")
                 if os.path.exists(cand):
-                    import shutil
                     dest = os.path.join(job_output_dir, f"gallery_match_{top_identity}{ext}")
                     try:
                         shutil.copyfile(cand, dest)
@@ -213,7 +234,8 @@ def run_pipeline_job(
             top_score,
             best_age=best_age,
             matched_gallery_image=matched_gallery_image,
-            pipeline_params=pipeline_params
+            pipeline_params=pipeline_params,
+            age_scores=age_scores
         )
 
     except Exception as e:

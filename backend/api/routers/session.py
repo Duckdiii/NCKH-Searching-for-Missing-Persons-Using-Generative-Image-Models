@@ -12,11 +12,14 @@ from backend.api.schemas import (
     ResolveAgeResponse,
     SelectFaceRequest,
     SelectFaceResponse,
+    RestorePreviewRequest,
+    RestorePreviewResponse,
+    ApplyRestoreRequest,
     UploadResponse,
 )
 from backend.api.session_store import SessionState, get_session, save_session
 from src.utils.age_estimator import resolve_initial_age
-from src.utils.face_enhancement import preprocess_face_image
+from src.utils.face_enhancement import preprocess_face_image, apply_white_balance_from_point
 from src.utils.ffhq_align import align_to_ffhq
 from src.utils.head_pose import check_image_quality
 
@@ -115,6 +118,76 @@ def select_face(session_id: str, req: SelectFaceRequest):
     return SelectFaceResponse(warnings=warnings, cropped_preview_url=cropped_preview_url)
 
 
+@router.post("/{session_id}/restore-preview", response_model=RestorePreviewResponse)
+def restore_preview(session_id: str, req: RestorePreviewRequest):
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Phiên làm việc không tồn tại.")
+    if not session.chosen_face:
+        raise HTTPException(status_code=400, detail="Chưa chọn khuôn mặt.")
+
+    wb_point = (req.click_x, req.click_y) if (req.click_x is not None and req.click_y is not None) else None
+    
+    wb_info = None
+    if req.white_balance_enabled and wb_point is not None:
+        _, wb_info = apply_white_balance_from_point(session.image_rgb, wb_point[0], wb_point[1], return_info=True)
+
+    preprocessed_bgr, updated_kps = preprocess_face_image(
+        session.image_bgr,
+        kps=session.chosen_face.kps,
+        bbox=session.chosen_face.bbox,
+        mode=req.mode,
+        padding_enabled=req.padding_enabled,
+        white_balance_enabled=req.white_balance_enabled,
+        wb_point=wb_point,
+        fidelity_weight=req.fidelity_weight,
+    )
+    cropped = align_to_ffhq(preprocessed_bgr, updated_kps, output_size=512)
+    os.makedirs("outputs/app_uploads", exist_ok=True)
+    preview_filename = f"{session_id}_preview.png"
+    preview_path = os.path.join("outputs", "app_uploads", preview_filename)
+    cv2.imwrite(preview_path, cropped)
+
+    preview_url = f"/outputs/app_uploads/{preview_filename}"
+    return RestorePreviewResponse(preview_url=preview_url, wb_info=wb_info)
+
+
+@router.post("/{session_id}/apply-restore")
+def apply_restore(session_id: str, req: ApplyRestoreRequest):
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Phiên làm việc không tồn tại.")
+    if not session.chosen_face:
+        raise HTTPException(status_code=400, detail="Chưa chọn khuôn mặt.")
+
+    if not req.use_restored:
+        cropped = align_to_ffhq(session.image_bgr, session.chosen_face.kps, output_size=512)
+    else:
+        wb_point = (req.click_x, req.click_y) if (req.click_x is not None and req.click_y is not None) else None
+        preprocessed_bgr, updated_kps = preprocess_face_image(
+            session.image_bgr,
+            kps=session.chosen_face.kps,
+            bbox=session.chosen_face.bbox,
+            mode=req.mode,
+            padding_enabled=req.padding_enabled,
+            white_balance_enabled=req.white_balance_enabled,
+            wb_point=wb_point,
+            fidelity_weight=req.fidelity_weight,
+        )
+        cropped = align_to_ffhq(preprocessed_bgr, updated_kps, output_size=512)
+
+    os.makedirs("outputs/app_uploads", exist_ok=True)
+    cropped_filename = f"{session_id}_crop.png"
+    cropped_path = os.path.join("outputs", "app_uploads", cropped_filename)
+    cv2.imwrite(cropped_path, cropped)
+
+    session.cropped_path = cropped_path
+    save_session(session)
+
+    cropped_preview_url = f"/outputs/app_uploads/{cropped_filename}"
+    return {"status": "ok", "cropped_preview_url": cropped_preview_url}
+
+
 @router.post("/{session_id}/resolve-age", response_model=ResolveAgeResponse)
 def resolve_age(session_id: str, req: ResolveAgeRequest):
     session = get_session(session_id)
@@ -125,6 +198,8 @@ def resolve_age(session_id: str, req: ResolveAgeRequest):
         raise HTTPException(status_code=400, detail="Vui lòng chọn khuôn mặt trước khi xác định tuổi.")
 
     session.gender_word = req.gender_word
+    if req.photo_year is not None:
+        session.photo_year = req.photo_year
 
     if req.mode == "manual":
         if req.manual_age is None:

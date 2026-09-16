@@ -13,6 +13,7 @@ class SessionState:
     cropped_path: Optional[str] = None
     gender_word: str = "man"
     initial_age: Optional[int] = None
+    photo_year: Optional[int] = None
     file_name: str = ""
 
 

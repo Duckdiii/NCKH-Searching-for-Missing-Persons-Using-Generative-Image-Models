@@ -17,11 +17,12 @@ import {
   ArrowLeft,
   RefreshCw,
   CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 
 export const SearchPage: React.FC = () => {
   const store = useSearchStore();
-  const { uploadImage, runPipeline } = useSearchApi();
+  const { uploadImage, runPipeline, applyRestoration } = useSearchApi();
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -131,17 +132,25 @@ export const SearchPage: React.FC = () => {
     }
   }, [store.isHistoricalView, currentStep]);
 
-  // Đồng bộ khi bấm "Tìm kiếm mới" từ Sidebar hoặc Command Palette
+  // Đồng bộ khi bấm "Tìm kiếm mới" từ Sidebar hoặc Command Palette (không áp dụng khi đang ở chế độ Demo)
   useEffect(() => {
-    if (!store.sessionId && !store.jobId && !store.isHistoricalView && currentStep !== 'restore') {
+    if (!store.isDemoMode && !store.sessionId && !store.jobId && !store.isHistoricalView && currentStep !== 'restore') {
       store.setCurrentWizardStep('restore');
       setCompletedSteps([]);
     }
-  }, [store.sessionId, store.jobId, store.isHistoricalView, currentStep]);
+  }, [store.isDemoMode, store.sessionId, store.jobId, store.isHistoricalView, currentStep]);
 
-  // Điều hướng stepper: chỉ cho phép click nếu bước đã nằm trong completedSteps
+  // Điều hướng stepper: cho phép click nếu bước đã nằm trong completedSteps hoặc đang bật isDemoMode
   const handleStepClick = (step: WizardStep) => {
-    if (completedSteps.includes(step)) {
+    if (store.isDemoMode || completedSteps.includes(step)) {
+      if (step === 'results' && (!store.jobResult || store.jobResult.status !== 'done')) {
+        const completedHistory = store.sessionHistory.filter(
+          (h) => h.status === 'done' && h.result
+        );
+        if (completedHistory.length > 0) {
+          store.loadHistoricalJob(completedHistory[0]);
+        }
+      }
       setCurrentStep(step);
     }
   };
@@ -167,7 +176,22 @@ export const SearchPage: React.FC = () => {
   };
 
   // Xác nhận bước 1 (Khôi phục ảnh) -> Chuyển sang Bước 2
-  const handleConfirmRestore = (_useRestored: boolean, _fidelity: number, _opts: any) => {
+  const handleConfirmRestore = async (useRestored: boolean, fidelity: number, opts: any) => {
+    if (store.sessionId) {
+      try {
+        await applyRestoration(store.sessionId, {
+          mode: opts?.mode || 'auto',
+          useRestored,
+          paddingEnabled: opts?.adaptivePadding ?? true,
+          whiteBalanceEnabled: opts?.whiteBalance ?? true,
+          clickX: opts?.refPoint?.x ?? null,
+          clickY: opts?.refPoint?.y ?? null,
+          fidelityWeight: fidelity,
+        });
+      } catch (e) {
+        console.warn('Could not apply backend restoration:', e);
+      }
+    }
     setCompletedSteps((prev) => Array.from(new Set([...prev, 'restore'])));
     setCurrentStep('generate');
   };
@@ -176,7 +200,7 @@ export const SearchPage: React.FC = () => {
   const handleRun = async () => {
     if (!store.sessionId) return;
     try {
-      await runPipeline(store.sessionId, store.galleryDir);
+      await runPipeline(store.sessionId, store.galleryDir, store.photoYear);
     } catch (err: any) {
       console.error(err);
       const msg = err.response?.data?.detail || 'Không thể bắt đầu pipeline.';
@@ -196,10 +220,14 @@ export const SearchPage: React.FC = () => {
     setCurrentStep('restore');
   };
 
+  const currentYear = new Date().getFullYear();
   const isReadyToRun = Boolean(
     store.sessionId &&
     store.croppedPreviewUrl &&
     store.initialAge !== null &&
+    store.photoYear !== null &&
+    store.photoYear >= 1900 &&
+    store.photoYear < currentYear &&
     store.jobStatus !== 'running'
   );
 
@@ -250,6 +278,7 @@ export const SearchPage: React.FC = () => {
         currentStep={currentStep}
         completedSteps={completedSteps}
         onStepClick={handleStepClick}
+        isDemoMode={store.isDemoMode}
       />
 
       {/* ============================================================ */}
@@ -383,6 +412,7 @@ export const SearchPage: React.FC = () => {
                   <PhotoRestoration
                     originalFaceUrl={croppedFaceFullUrl}
                     onConfirm={handleConfirmRestore}
+                    sessionId={store.sessionId}
                   />
                 )}
               </div>
@@ -503,15 +533,26 @@ export const SearchPage: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
+                    <div className="flex justify-between py-1.5 border-b border-[#E5E7EB] items-start">
                       <span className="text-[#6B7280]">Tuổi đối tượng lúc mất tích:</span>
-                      <span className="font-semibold text-[#E8804A] font-mono">
-                        {store.ageMode === 'manual'
-                          ? `${store.manualAge} tuổi (Tự điền)`
-                          : store.initialAge !== null
-                          ? `~${store.initialAge} tuổi (MiVOLO)`
-                          : 'Chưa xác định'}
-                      </span>
+                      <div className="text-right">
+                        <span className="font-semibold text-[#E8804A] font-mono block">
+                          {store.ageMode === 'manual'
+                            ? `${store.manualAge ?? store.initialAge ?? '?'} tuổi (Tự điền)`
+                            : store.initialAge !== null
+                            ? `~${store.initialAge} tuổi (MiVOLO)`
+                            : 'Chưa xác định'}
+                        </span>
+                        {store.photoYear && (store.manualAge ?? store.initialAge) !== null ? (
+                          <span className="text-[11px] text-[#4B5563] font-medium block">
+                            (Năm {store.photoYear} → Hiện tại ~{(store.manualAge ?? store.initialAge ?? 0) + (currentYear - store.photoYear)} tuổi)
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-[#D97706] italic block">
+                            (Chưa nhập năm chụp)
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex justify-between py-1.5 border-b border-[#E5E7EB]">
@@ -565,6 +606,7 @@ export const SearchPage: React.FC = () => {
 
             <button
               type="button"
+              data-testid="new-search-btn"
               onClick={handleResetAll}
               className="text-xs text-[#E8804A] hover:underline flex items-center gap-1 font-semibold"
             >
@@ -573,7 +615,31 @@ export const SearchPage: React.FC = () => {
             </button>
           </div>
 
-          <ResultsGallery />
+          {!store.jobResult || store.jobResult.status !== 'done' ? (
+            <div
+              data-testid="demo-empty-results-warning"
+              className="bg-white border border-[#E5E7EB] rounded-2xl p-10 text-center max-w-xl mx-auto space-y-4 shadow-xs"
+            >
+              <div className="w-12 h-12 bg-[#FEF3C7] text-[#D97706] rounded-xl flex items-center justify-center mx-auto">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-[#111827]">
+                Chưa có kết quả nào để xem — cần chạy ít nhất 1 job thật trước khi demo bước này
+              </h3>
+              <p className="text-xs text-[#6B7280]">
+                Chế độ Demo cho phép điều hướng mở khóa giữa các bước, nhưng để đối soát dữ liệu thật cần ít nhất 1 phiên chạy hoàn thành trong hệ thống.
+              </p>
+              <button
+                type="button"
+                onClick={() => setCurrentStep('restore')}
+                className="inline-flex items-center gap-2 bg-[#E8804A] hover:bg-[#D97706] text-white text-xs font-bold py-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-xs hover-lift"
+              >
+                <span>Quay lại Bước 1 để bắt đầu</span>
+              </button>
+            </div>
+          ) : (
+            <ResultsGallery />
+          )}
         </div>
       )}
     </div>

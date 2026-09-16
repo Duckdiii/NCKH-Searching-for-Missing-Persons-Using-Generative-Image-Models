@@ -33,6 +33,7 @@ interface SearchState {
 
   // Shell & Navigation state
   isAdvancedMode: boolean;
+  isDemoMode: boolean;
   isSidebarCollapsed: boolean;
   sessionHistory: JobHistoryItem[];
   isHistoricalView: boolean;
@@ -50,6 +51,7 @@ interface SearchState {
   genderWord: 'man' | 'woman';
   ageMode: 'manual' | 'mivolo';
   manualAge: number;
+  photoYear: number | null;
   initialAge: number | null;
   ageWarningText: string | null;
   isEstimatingAge: boolean;
@@ -74,6 +76,8 @@ interface SearchState {
   setIsCheckingHealth: (checking: boolean) => void;
   toggleAdvancedMode: () => void;
   setAdvancedMode: (val: boolean) => void;
+  toggleDemoMode: () => void;
+  setDemoMode: (val: boolean) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (val: boolean) => void;
   setCurrentWizardStep: (step: 'restore' | 'generate' | 'results') => void;
@@ -85,6 +89,7 @@ interface SearchState {
   setGenderWord: (gender: 'man' | 'woman') => void;
   setAgeMode: (mode: 'manual' | 'mivolo') => void;
   setManualAge: (age: number) => void;
+  setPhotoYear: (year: number | null) => void;
   setIsEstimatingAge: (estimating: boolean) => void;
   setResolvedAge: (age: number, warningText?: string | null) => void;
   setGalleryDir: (dir: string | null) => void;
@@ -107,6 +112,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   appVersion: '0.1.0',
 
   isAdvancedMode: false,
+  isDemoMode: false,
   isSidebarCollapsed: false,
   sessionHistory: loadInitialHistory(),
   isHistoricalView: false,
@@ -122,6 +128,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   genderWord: 'man',
   ageMode: 'manual',
   manualAge: 10,
+  photoYear: null,
   initialAge: null,
   ageWarningText: null,
   isEstimatingAge: false,
@@ -149,6 +156,8 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
   toggleAdvancedMode: () => set((state) => ({ isAdvancedMode: !state.isAdvancedMode })),
   setAdvancedMode: (val) => set({ isAdvancedMode: val }),
+  toggleDemoMode: () => set((state) => ({ isDemoMode: !state.isDemoMode })),
+  setDemoMode: (val) => set({ isDemoMode: val }),
 
   toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
   setSidebarCollapsed: (val) => set({ isSidebarCollapsed: val }),
@@ -172,6 +181,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
         jobResult: item.result,
         croppedPreviewUrl: item.cropped_preview_url || get().croppedPreviewUrl,
         initialAge: item.initial_age ?? get().initialAge,
+        photoYear: item.photo_year ?? null,
         genderWord: (item.gender_word as any) || get().genderWord,
         isHistoricalView: true,
         currentWizardStep: 'results',
@@ -188,6 +198,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       warnings: [],
       croppedPreviewUrl: null,
       initialAge: null,
+      photoYear: null,
       ageWarningText: null,
       jobId: null,
       jobStatus: 'idle',
@@ -207,6 +218,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     warnings: [],
     croppedPreviewUrl: null,
     initialAge: null,
+    photoYear: null,
     ageWarningText: null,
     jobId: null,
     jobStatus: 'idle',
@@ -222,6 +234,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   setGenderWord: (gender) => set({ genderWord: gender }),
   setAgeMode: (mode) => set({ ageMode: mode }),
   setManualAge: (age) => set({ manualAge: age }),
+  setPhotoYear: (year) => set({ photoYear: year }),
   setIsEstimatingAge: (estimating) => set({ isEstimatingAge: estimating }),
   setResolvedAge: (age, warningText) => set({
     initialAge: age,
@@ -239,6 +252,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       timestamp: Date.now(),
       cropped_preview_url: get().croppedPreviewUrl,
       initial_age: get().initialAge ?? get().manualAge,
+      photo_year: get().photoYear,
       gender_word: get().genderWord,
     };
     get().addHistoryItem(newHistoryItem);
@@ -313,6 +327,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     warnings: [],
     croppedPreviewUrl: null,
     initialAge: null,
+    photoYear: null,
     ageWarningText: null,
     jobId: null,
     jobStatus: 'idle',

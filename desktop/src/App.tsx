@@ -10,7 +10,7 @@ import { Toast } from './components/Toast';
 import { Loader2 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const { checkpointReady, isCheckingHealth, currentWizardStep, toast, setToast } = useSearchStore();
+  const { checkpointReady, isCheckingHealth, currentWizardStep, toast, setToast, isDemoMode } = useSearchStore();
   const { checkHealth, fetchJobsHistory } = useSearchApi();
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -112,6 +112,17 @@ export const App: React.FC = () => {
           onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         />
 
+        {isDemoMode && (
+          <div
+            role="alert"
+            data-testid="demo-mode-banner"
+            style={{ backgroundColor: 'var(--accent-warning, #D97706)' }}
+            className="px-4 py-1.5 flex items-center justify-center gap-2 text-xs font-semibold text-white shadow-xs shrink-0 select-none text-center"
+          >
+            <span>⚠️ ĐANG Ở CHẾ ĐỘ DEMO — điều hướng không bị khóa, không phản ánh trạng thái xử lý thật</span>
+          </div>
+        )}
+
         <main className="flex-1 overflow-y-auto">
           {!checkpointReady ? <FirstRunSetup /> : <SearchPage />}
         </main>
@@ -122,7 +133,16 @@ export const App: React.FC = () => {
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         onSelectGoToResults={() => {
-          useSearchStore.getState().setCurrentWizardStep('results');
+          const s = useSearchStore.getState();
+          if (s.isDemoMode && (!s.jobResult || s.jobResult.status !== 'done')) {
+            const completedJobs = s.sessionHistory.filter(
+              (h) => h.status === 'done' && h.result
+            );
+            if (completedJobs.length > 0) {
+              s.loadHistoricalJob(completedJobs[0]);
+            }
+          }
+          s.setCurrentWizardStep('results');
         }}
       />
 

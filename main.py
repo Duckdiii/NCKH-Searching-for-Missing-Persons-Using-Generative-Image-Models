@@ -31,7 +31,7 @@ import cv2
 import pandas as pd
 import torch
 import yaml
-from typing import Optional
+from typing import Optional, List, Dict, Tuple
 
 from src.fading.editing import Editor
 from src.fading.inversion import NullTextInverter
@@ -43,13 +43,15 @@ from src.search.rejection import apply_rejection_threshold
 from src.utils.age_estimator import AgeEstimator
 from src.utils.face_enhancement import preprocess_face_image
 from src.utils.ffhq_align import align_to_ffhq
-from src.utils.prompts import age_group_to_age, gender_to_word
+from src.utils.prompts import age_group_to_age, gender_to_word, compute_target_ages
 
 CONFIG_PATH = "configs/config.yaml"
 
 # ===== Chọn ảnh test (happy path - chỉ tên file là nhập tay, tuổi/giới tính TRA CUU tu CSV) =====
 TEST_IMAGE_NAME = "01366.png"
-TARGET_AGES = [30, 50, 70]  # muc tieu tu chon tay, khong lien quan label goc
+PHOTO_YEAR = 2010  # Năm chụp ảnh
+TARGET_AGES = compute_target_ages(34, PHOTO_YEAR)  # Mốc tuổi tính theo thời điểm hiện tại
+
 
 
 def load_config() -> dict:
@@ -244,11 +246,15 @@ def run_editing(
     attention_maps,
     gender_word: str,
     initial_age: Optional[int] = None,
+    target_ages: Optional[List[int]] = None,
 ) -> dict:
-    """Module 3: sinh ảnh PNG cho từng TARGET_AGES. num_inference_steps LUÔN lấy từ
+    """Module 3: sinh ảnh PNG cho từng target_ages. num_inference_steps LUÔN lấy từ
     config["inversion"] (không phải config["editing"]) để đảm bảo khớp tuyệt đối với Module 2 -
     xem lý do trong comment của configs/config.yaml."""
-    print("[main] Chạy Module 3 (Editing)...")
+    if target_ages is None:
+        target_ages = TARGET_AGES
+
+    print(f"[main] Chạy Module 3 (Editing) cho các mốc tuổi: {target_ages}...")
     editor = Editor(
         pretrained_model_name_or_path=config["base_model"]["pretrained_model_name_or_path"],
         unet_checkpoint_dir=ckpt_dir,
@@ -264,7 +270,7 @@ def run_editing(
         z_T,
         null_embeddings,
         attention_maps,
-        TARGET_AGES,
+        target_ages,
         gender_word,
         config["paths"]["output_dir"],
         initial_age=initial_age,
@@ -275,7 +281,7 @@ def run_editing(
     return results  # {target_age: đường_dẫn_ảnh_PNG}
 
 
-def run_embedding_and_search(config: dict, edited_images: dict):
+def run_embedding_and_search(config: dict, edited_images: dict, return_age_scores: bool = False):
     """Module 4 + Module 5: build gallery 1 lần, embed từng ảnh target_age sinh ra, search
     RIÊNG cho từng target_age (không ensemble ở Module 5 - đúng yêu cầu happy path gốc).
 
@@ -290,7 +296,7 @@ def run_embedding_and_search(config: dict, edited_images: dict):
     chưa hoàn hảo), chỉ cảnh báo và bỏ qua đúng target_age đó, KHÔNG để crash cả vòng lặp làm
     mất kết quả của các target_age còn lại đã chạy thành công.
 
-    Trả về (final_scores, accepted, top_identity, top_score) để người gọi khác (vd app.py)
+    Trả về (final_scores, accepted, top_identity, top_score[, age_scores]) để người gọi khác (vd app.py)
     dùng lại được mà không cần parse lại stdout."""
     print("[main] Chạy Module 4 (Embedding) + Module 5 (FAISS Search)...")
     embedder = FaceEmbedder(
@@ -332,7 +338,15 @@ def run_embedding_and_search(config: dict, edited_images: dict):
         scores_per_identity, final_scores, threshold=config["search"]["rejection_threshold"]
     )
 
-    print("[main] --- Kết quả ensemble (gộp cả 3 target_age, dùng để xếp hạng) ---")
+    # Trích xuất điểm id_score thô (đầy đủ số thập phân) cho từng mốc tuổi với top_identity
+    age_scores: Dict[int, float] = {}
+    for target_age, top_k in search_results_per_age.items():
+        score_for_top = next((float(score) for identity, score in top_k if identity == top_identity), None)
+        if score_for_top is not None:
+            age_scores[int(target_age)] = score_for_top
+            print(f"[ID_EVAL] Mốc tuổi {target_age}: id_score thô với {top_identity} = {score_for_top:.6f}")
+
+    print(f"[main] --- Kết quả ensemble (gộp {len(search_results_per_age)} target_age, dùng để xếp hạng) ---")
     for identity, score in final_scores.items():
         print(f"    {identity}: {score:.4f}")
 
@@ -343,6 +357,9 @@ def run_embedding_and_search(config: dict, edited_images: dict):
             f"[main] Không tìm thấy kết quả đủ tin cậy "
             f"(điểm thô cao nhất: {top_score:.2%} < ngưỡng {config['search']['rejection_threshold']:.0%})"
         )
+
+    if return_age_scores:
+        return final_scores, accepted, top_identity, top_score, age_scores
 
     return final_scores, accepted, top_identity, top_score
 

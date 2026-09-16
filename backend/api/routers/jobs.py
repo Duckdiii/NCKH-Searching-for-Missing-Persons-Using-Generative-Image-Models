@@ -29,6 +29,12 @@ def run_pipeline(session_id: str, req: RunPipelineRequest = RunPipelineRequest()
     if session.initial_age is None:
         raise HTTPException(status_code=400, detail="Chưa xác định tuổi ban đầu (initial_age).")
 
+    if req.photo_year is not None:
+        session.photo_year = req.photo_year
+
+    if session.photo_year is None:
+        raise HTTPException(status_code=400, detail="Chưa xác định năm chụp ảnh (photo_year).")
+
     # Kiểm tra Mutex GPU: nếu đang có job chạy, trả 409 ngay lập tức
     acquired = PIPELINE_LOCK.acquire(blocking=False)
     if not acquired:
@@ -64,6 +70,8 @@ def list_jobs():
     """Trả về danh sách tất cả các job đã chạy từ session store in-memory."""
     job_list = []
     for job_id, job in list(jobs.items()):
+        if job.result and not job.result.get("cropped_image") and os.path.exists(os.path.join("outputs", "jobs", job_id, "input_crop.png")):
+            job.result["cropped_image"] = f"/outputs/jobs/{job_id}/input_crop.png"
         item = {
             "job_id": job.job_id,
             "session_id": job.session_id,
@@ -86,6 +94,8 @@ def get_job_status(job_id: str):
         raise HTTPException(status_code=404, detail="Không tìm thấy job.")
 
     if job.status == "done" and job.result:
+        if not job.result.get("cropped_image") and os.path.exists(os.path.join("outputs", "jobs", job_id, "input_crop.png")):
+            job.result["cropped_image"] = f"/outputs/jobs/{job_id}/input_crop.png"
         return job.result
 
     return {

@@ -21,7 +21,8 @@ export interface SelectFaceResponse {
 export interface ResolveAgeRequest {
   mode: 'manual' | 'mivolo';
   manual_age?: number | null;
-  gender_word: 'man' | 'woman';
+  gender_word?: 'man' | 'woman';
+  photo_year?: number | null;
 }
 
 export interface ResolveAgeResponse {
@@ -32,6 +33,7 @@ export interface ResolveAgeResponse {
 
 export interface RunPipelineRequest {
   gallery_dir?: string | null;
+  photo_year?: number | null;
 }
 
 export interface JobStatus {
@@ -55,6 +57,7 @@ export interface JobResult {
   job_id: string;
   status: 'done' | 'error';
   edited_images: Record<number, string>; // age -> image URL
+  age_scores?: Record<number, number>; // age -> ID score
   final_scores: Record<string, number>;
   accepted: boolean;
   top_identity: string;
@@ -85,5 +88,6 @@ export interface JobHistoryItem {
   timestamp?: number;
   cropped_preview_url?: string | null;
   initial_age?: number | null;
+  photo_year?: number | null;
   gender_word?: string | null;
 }

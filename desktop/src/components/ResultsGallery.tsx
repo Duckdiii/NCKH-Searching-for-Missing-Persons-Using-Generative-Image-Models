@@ -55,6 +55,7 @@ export const ResultsGallery: React.FC = () => {
     top_score,
     best_age,
     matched_gallery_image,
+    age_scores,
   } = jobResult;
 
   const baseUrl = `http://127.0.0.1:${backendPort}`;
@@ -68,7 +69,7 @@ export const ResultsGallery: React.FC = () => {
   };
 
   // 1. Ảnh gốc lúc nhỏ
-  const originalFaceUrl = resolveUrl(croppedPreviewUrl) || uploadedImageUrl || '';
+  const originalFaceUrl = resolveUrl((jobResult as any).cropped_image) || resolveUrl(croppedPreviewUrl) || resolveUrl(`/outputs/jobs/${jobResult.job_id}/input_crop.png`) || uploadedImageUrl || '';
 
   // 2. Mốc tuổi và ảnh FADING khớp nhất
   const ages = Object.keys(edited_images).map((a) => parseInt(a)).sort((a, b) => a - b);
@@ -110,7 +111,7 @@ export const ResultsGallery: React.FC = () => {
   const idScoreBadge = getIdScoreBadge(top_score);
 
   return (
-    <div className="bg-white border border-[#E5E7EB] rounded-xl p-5 sm:p-6 shadow-xs space-y-6 animate-in fade-in duration-300">
+    <div data-testid="results-gallery" className="bg-white border border-[#E5E7EB] rounded-xl p-5 sm:p-6 shadow-xs space-y-6 animate-in fade-in duration-300">
       {/* 1. Banner kết quả chấp nhận / từ chối */}
       <div
         className={`p-4 sm:p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
@@ -173,7 +174,7 @@ export const ResultsGallery: React.FC = () => {
         {/* Cột trái (~58% / lg:col-span-7): Hero Card 3 ảnh + Lưới mốc tuổi khác */}
         <div className="lg:col-span-7 space-y-6">
           {/* 2. Hero Card: So sánh trực quan 3 ảnh theo hàng ngang */}
-          <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 sm:p-5 shadow-xs space-y-4">
+          <div data-testid="hero-card" className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 sm:p-5 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-[#E5E7EB] pb-3">
               <div className="flex items-center gap-2 text-sm font-bold text-[#111827]">
                 <SplitSquareVertical className="w-4 h-4 text-[#E8804A]" />
@@ -278,7 +279,7 @@ export const ResultsGallery: React.FC = () => {
           </div>
 
           {/* 3. Khối ảnh già hóa duy nhất (Gộp 2 khối cũ thành 1) */}
-          <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
+          <div data-testid="milestones-grid" className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
             <div className="flex items-center justify-between border-b border-[#E5E7EB] pb-3">
               <h4 className="text-xs font-bold text-[#111827] uppercase tracking-wider flex items-center gap-2">
                 <span>Khuôn mặt dự đoán qua các độ tuổi (FADING Dual-Attention):</span>
@@ -286,11 +287,22 @@ export const ResultsGallery: React.FC = () => {
               <span className="text-[11px] text-[#6B7280]">Click để xem lớn</span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div
+              className={`grid gap-3 ${
+                Object.keys(edited_images).length === 1
+                  ? 'grid-cols-1 max-w-xs mx-auto'
+                  : Object.keys(edited_images).length === 2
+                  ? 'grid-cols-2 max-w-md mx-auto sm:max-w-none'
+                  : Object.keys(edited_images).length === 3
+                  ? 'grid-cols-1 sm:grid-cols-3'
+                  : 'grid-cols-2 sm:grid-cols-4'
+              }`}
+            >
               {Object.entries(edited_images).map(([ageStr, relPath]) => {
                 const ageNum = parseInt(ageStr);
                 const isBest = ageNum === matchedAge;
-                const badge = getIdScoreBadge(top_score);
+                const milestoneScore = age_scores?.[ageNum] ?? top_score;
+                const badge = getIdScoreBadge(milestoneScore);
                 return (
                   <div
                     key={ageStr}
@@ -324,7 +336,7 @@ export const ResultsGallery: React.FC = () => {
                             : 'bg-white/95 text-[#111827] border border-[#E5E7EB]'
                         }`}
                       >
-                        {ageStr}t • {(top_score * 100).toFixed(0)}%
+                        {ageStr}t • {(milestoneScore * 100).toFixed(0)}%
                       </div>
 
                       <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white pointer-events-none">
@@ -344,12 +356,17 @@ export const ResultsGallery: React.FC = () => {
                 );
               })}
             </div>
+            {Object.keys(edited_images).length === 1 && (
+              <p className="text-xs text-[#6B7280] text-center italic mt-2">
+                Ảnh chụp cách đây chưa tới 10 năm — chỉ sinh 1 mốc tuổi hiện tại
+              </p>
+            )}
           </div>
         </div>
 
         {/* Cột phải (~42% / lg:col-span-5): Bảng xếp hạng độ tương đồng nhận diện & Thông số nâng cao */}
         <div className="lg:col-span-5 lg:sticky lg:top-6 space-y-4">
-          <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
+          <div data-testid="ranking-table-card" className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h4 className="text-xs font-bold text-[#111827] uppercase tracking-wider">
@@ -363,6 +380,7 @@ export const ResultsGallery: React.FC = () => {
               {/* Nút xuất báo cáo CSV & PDF */}
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 <button
+                  data-testid="export-csv-btn"
                   onClick={() => exportRankingToCSV(jobResult)}
                   title="Xuất bảng đối soát ra file CSV (chuẩn UTF-8 mở trực tiếp trong Excel)"
                   className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-white hover:bg-[#F3F4F6] text-[#374151] hover:text-[#111827] border border-[#E5E7EB] rounded-lg shadow-2xs transition-colors cursor-pointer hover-lift"
@@ -470,7 +488,7 @@ export const ResultsGallery: React.FC = () => {
 
           {/* Hộp Thông số kỹ thuật Pipeline (CHỈ HIỆN KHI BẬT NÂNG CAO) */}
           {isAdvancedMode && (
-            <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 sm:p-5 shadow-xs space-y-3 animate-in fade-in duration-200">
+            <div data-testid="advanced-params-box" className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 sm:p-5 shadow-xs space-y-3 animate-in fade-in duration-200">
               <div className="flex items-center gap-1.5 text-xs font-bold text-[#111827] uppercase tracking-wider border-b border-[#E5E7EB] pb-2">
                 <Sliders className="w-3.5 h-3.5 text-[#D97706]" />
                 <span>Thông số kỹ thuật Pipeline (Nâng cao)</span>

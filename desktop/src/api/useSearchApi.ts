@@ -60,7 +60,13 @@ export function useSearchApi() {
   }, []);
 
   const resolveAge = useCallback(
-    async (sessionId: string, mode: 'manual' | 'mivolo', manualAge?: number, genderWord: 'man' | 'woman' = 'man') => {
+    async (
+      sessionId: string,
+      mode: 'manual' | 'mivolo',
+      manualAge?: number,
+      genderWord: 'man' | 'woman' = 'man',
+      photoYear?: number | null
+    ) => {
       const s = useSearchStore.getState();
       if (mode === 'mivolo') {
         s.setIsEstimatingAge(true);
@@ -70,6 +76,7 @@ export function useSearchApi() {
           mode,
           manual_age: mode === 'manual' ? manualAge : null,
           gender_word: genderWord,
+          photo_year: photoYear ?? s.photoYear,
         });
         s.setResolvedAge(res.data.initial_age, res.data.warning_text);
         return res.data;
@@ -80,11 +87,15 @@ export function useSearchApi() {
     []
   );
 
-  const runPipeline = useCallback(async (sessionId: string, galleryDir?: string | null) => {
+  const runPipeline = useCallback(async (sessionId: string, galleryDir?: string | null, photoYear?: number | null) => {
     const s = useSearchStore.getState();
+    const effectivePhotoYear = photoYear !== undefined ? photoYear : s.photoYear;
     const res = await api.post<{ job_id: string; status: string }>(
       `/api/sessions/${sessionId}/run`,
-      { gallery_dir: galleryDir }
+      {
+        gallery_dir: galleryDir,
+        photo_year: effectivePhotoYear
+      }
     );
     const jobId = res.data.job_id;
     s.startJob(jobId);
@@ -117,6 +128,68 @@ export function useSearchApi() {
     return jobId;
   }, []);
 
+  const previewRestoration = useCallback(
+    async (
+      sessionId: string,
+      options: {
+        mode?: 'auto' | 'manual';
+        paddingEnabled: boolean;
+        whiteBalanceEnabled: boolean;
+        clickX?: number | null;
+        clickY?: number | null;
+        fidelityWeight: number;
+      }
+    ) => {
+      const res = await api.post<{ preview_url: string; wb_info?: any }>(
+        `/api/sessions/${sessionId}/restore-preview`,
+        {
+          mode: options.mode ?? 'auto',
+          padding_enabled: options.paddingEnabled,
+          white_balance_enabled: options.whiteBalanceEnabled,
+          click_x: options.clickX,
+          click_y: options.clickY,
+          fidelity_weight: options.fidelityWeight,
+        }
+      );
+      return res.data;
+    },
+    []
+  );
+
+  const applyRestoration = useCallback(
+    async (
+      sessionId: string,
+      options: {
+        mode: 'auto' | 'manual';
+        useRestored: boolean;
+        paddingEnabled: boolean;
+        whiteBalanceEnabled: boolean;
+        clickX?: number | null;
+        clickY?: number | null;
+        fidelityWeight: number;
+      }
+    ) => {
+      const res = await api.post<{ status: string; cropped_preview_url: string }>(
+        `/api/sessions/${sessionId}/apply-restore`,
+        {
+          mode: options.mode,
+          use_restored: options.useRestored,
+          padding_enabled: options.paddingEnabled,
+          white_balance_enabled: options.whiteBalanceEnabled,
+          click_x: options.clickX,
+          click_y: options.clickY,
+          fidelity_weight: options.fidelityWeight,
+        }
+      );
+      const s = useSearchStore.getState();
+      if (res.data.cropped_preview_url) {
+        s.setSelectedFace(s.selectedFaceIdx ?? 0, s.warnings, res.data.cropped_preview_url);
+      }
+      return res.data;
+    },
+    []
+  );
+
   return {
     checkHealth,
     fetchJobsHistory,
@@ -124,5 +197,7 @@ export function useSearchApi() {
     selectFace,
     resolveAge,
     runPipeline,
+    previewRestoration,
+    applyRestoration,
   };
 }

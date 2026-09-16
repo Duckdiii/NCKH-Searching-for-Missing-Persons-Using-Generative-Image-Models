@@ -4,7 +4,8 @@ suy tuổi đại diện từ age_group, quy đổi gender sang từ mô tả, v
 P_alpha / P_neutral / P_tau theo đúng Enhanced Prompt (EP) của paper.
 """
 
-from typing import Dict
+from typing import Dict, List, Optional
+from datetime import datetime
 
 # Trung điểm từng age_group trong sampled_labels.csv.
 # Riêng nhóm cuối "70-120" LẤY TAY = 80, không dùng trung điểm toán học (sẽ ra 95),
@@ -54,5 +55,37 @@ def build_prompt_tau(target_age: int, gender_word: str) -> str:
     dùng trong Module 3 (Editing). Cùng công thức với P_alpha, tách hàm riêng cho rõ ngữ nghĩa
     sử dụng (P_alpha ứng với Initial Age, P_tau ứng với target age cần sinh ảnh)."""
     return build_prompt_alpha(target_age, gender_word)
+
+
+def compute_target_ages(
+    source_age: int,
+    photo_year: int,
+    current_year: Optional[int] = None
+) -> List[int]:
+    """Tính danh sách mốc tuổi già hóa theo thời điểm hiện tại:
+    elapsed_years = current_year - photo_year
+    current_age = source_age + elapsed_years
+    TARGET_AGES = [source_age + 10*i for i in 1, 2, 3, ... nếu source_age + 10*i <= current_age]
+
+    Fallback khi elapsed_years < 10:
+    TARGET_AGES = [current_age] (sinh đúng 1 ảnh ở tuổi hiện tại)
+    """
+    if current_year is None:
+        current_year = datetime.now().year
+
+    elapsed_years = current_year - photo_year
+    current_age = source_age + elapsed_years
+
+    target_ages: List[int] = []
+    i = 1
+    while source_age + 10 * i <= current_age:
+        target_ages.append(source_age + 10 * i)
+        i += 1
+
+    if not target_ages:
+        target_ages = [current_age]
+
+    return target_ages
+
 
 

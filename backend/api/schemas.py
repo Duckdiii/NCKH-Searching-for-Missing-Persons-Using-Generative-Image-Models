@@ -22,10 +22,36 @@ class SelectFaceResponse(BaseModel):
     cropped_preview_url: str
 
 
+class RestorePreviewRequest(BaseModel):
+    mode: Literal["auto", "manual"] = "auto"
+    padding_enabled: bool = True
+    white_balance_enabled: bool = True
+    click_x: Optional[int] = None
+    click_y: Optional[int] = None
+    fidelity_weight: float = 0.7
+
+
+class RestorePreviewResponse(BaseModel):
+    preview_url: str
+    wb_info: Optional[Dict[str, Any]] = None
+
+
+class ApplyRestoreRequest(BaseModel):
+    mode: Literal["auto", "manual"] = "auto"
+    use_restored: bool = True
+    padding_enabled: bool = True
+    white_balance_enabled: bool = True
+    click_x: Optional[int] = None
+    click_y: Optional[int] = None
+    fidelity_weight: float = 0.7
+    cropped_preview_url: Optional[str] = None
+
+
 class ResolveAgeRequest(BaseModel):
     mode: Literal["manual", "mivolo"]
     manual_age: Optional[int] = Field(None, ge=0, le=120)
     gender_word: Literal["man", "woman"] = "man"
+    photo_year: Optional[int] = Field(None, ge=1900)
 
 
 class ResolveAgeResponse(BaseModel):
@@ -36,6 +62,7 @@ class ResolveAgeResponse(BaseModel):
 
 class RunPipelineRequest(BaseModel):
     gallery_dir: Optional[str] = None
+    photo_year: Optional[int] = Field(None, ge=1900)
 
 
 class JobStatus(BaseModel):
@@ -49,6 +76,7 @@ class JobResult(BaseModel):
     job_id: str
     status: Literal["done", "error"]
     edited_images: Dict[int, str] = Field(default_factory=dict, description="Age -> image URL")
+    age_scores: Dict[int, float] = Field(default_factory=dict, description="Age -> ID score for top identity")
     final_scores: Dict[str, float] = Field(default_factory=dict)
     accepted: bool = False
     top_identity: str = ""
