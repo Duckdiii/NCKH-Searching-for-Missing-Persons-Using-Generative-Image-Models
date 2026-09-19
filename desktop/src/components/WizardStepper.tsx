@@ -7,6 +7,7 @@ export interface WizardStepperProps {
   currentStep: WizardStep;
   completedSteps: WizardStep[];
   onStepClick: (step: WizardStep) => void;
+  isDemoMode?: boolean;
 }
 
 interface StepMeta {
@@ -26,6 +27,7 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
   currentStep,
   completedSteps,
   onStepClick,
+  isDemoMode = false,
 }) => {
   return (
     <div className="bg-white border border-[#E5E7EB] rounded-xl p-4 shadow-xs">
@@ -33,8 +35,8 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
         {STEPS.map((step, idx) => {
           const isCompleted = completedSteps.includes(step.id);
           const isCurrent = currentStep === step.id;
-          const isLocked = !isCompleted && !isCurrent;
-          const canClick = isCompleted && !isCurrent;
+          const isLocked = isDemoMode ? false : (!isCompleted && !isCurrent);
+          const canClick = isDemoMode ? !isCurrent : (isCompleted && !isCurrent);
 
           return (
             <React.Fragment key={step.id}>
@@ -73,6 +75,8 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
                       ? 'bg-[#E8804A] border-[#E8804A] text-white shadow-sm ring-2 ring-[#E8804A]/30'
                       : isCompleted
                       ? 'bg-[#EFF6FF] border-[#3B82C7] text-[#3B82C7] group-hover:scale-105 group-hover:bg-[#DBEAFE]'
+                      : isDemoMode
+                      ? 'bg-[#F9FAFB] border-[#3B82C7]/60 text-[#3B82C7] group-hover:scale-105 group-hover:bg-[#DBEAFE]'
                       : 'bg-[#F9FAFB] border-[#E5E7EB] text-[#9CA3AF]'
                   }`}
                 >
@@ -90,7 +94,7 @@ export const WizardStepper: React.FC<WizardStepperProps> = ({
                     className={`text-xs font-semibold ${
                       isCurrent
                         ? 'text-[#111827]'
-                        : isCompleted
+                        : isCompleted || isDemoMode
                         ? 'text-[#3B82C7]'
                         : 'text-[#9CA3AF]'
                     }`}

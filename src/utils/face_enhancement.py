@@ -10,7 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -111,32 +111,54 @@ def preprocess_face_image(
     image_bgr: np.ndarray,
     kps: Optional[np.ndarray] = None,
     bbox: Optional[Tuple[float, float, float, float]] = None,
-    embedder=None
+    embedder=None,
+    mode: Literal["auto", "manual"] = "auto",
+    padding_enabled: bool = True,
+    white_balance_enabled: bool = True,
+    wb_point: Optional[Tuple[int, int]] = None,
+    fidelity_weight: float = 0.7,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Pipeline tiền xử lý khuôn mặt (Đồng bộ từ batch_preprocess_fgnet.ipynb & Kaggle 3):
-    1. Adaptive Padding (replicate) nếu mặt chiếm >= 85% hoặc sát viền
+    1. Adaptive Padding (replicate) nếu mặt chiếm >= 85% hoặc sát viền (nếu padding_enabled=True)
     2. Kiểm tra Grayscale (is_effectively_grayscale) -> Nếu ảnh xám thì bỏ qua White Balance
-    3. Shades of Gray White Balance (Minkowski p=6, kẹp gain [0.75, 1.30])
-    4. CodeFormer Face Restoration (w=0.7, fallback an toàn nếu không cài đặt CLI)
+       - Nếu có wb_point: sử dụng apply_white_balance_from_point (Chế độ thủ công)
+       - Nếu mode == "manual" và wb_point is None: bypass hoàn toàn, giữ nguyên màu gốc
+       - Mặc định (mode == "auto"): Shades of Gray White Balance (Minkowski p=6, kẹp gain [0.75, 1.30])
+    3. CodeFormer Face Restoration (w=0.7, fallback an toàn nếu không cài đặt CLI)
     Trả về: (preprocessed_bgr, updated_kps)
     """
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    padded_rgb, was_padded, (pad_w, pad_h) = apply_adaptive_padding(
-        image_rgb, border_mode="replicate", bbox=bbox, embedder=embedder, return_offset=True
-    )
+    if padding_enabled:
+        padded_rgb, was_padded, (pad_w, pad_h) = apply_adaptive_padding(
+            image_rgb, border_mode="replicate", bbox=bbox, embedder=embedder, return_offset=True
+        )
+    else:
+        padded_rgb = image_rgb
+        was_padded = False
+        pad_w, pad_h = 0, 0
+
     new_kps = kps.copy() if kps is not None else None
     if was_padded and new_kps is not None:
         new_kps = new_kps + np.array([pad_w, pad_h], dtype=new_kps.dtype)
 
-    # Bước 2: Kiểm tra Grayscale trước White Balance (chuẩn batch_preprocess_fgnet.ipynb)
-    was_grayscale = is_effectively_grayscale(padded_rgb, threshold=6.0)
-    if was_grayscale:
+    # Bước 2: Cân bằng trắng
+    if not white_balance_enabled:
         wb_rgb = padded_rgb
     else:
-        wb_rgb = apply_white_balance(padded_rgb, p=6, max_shift_thresh=35.0)
+        was_grayscale = is_effectively_grayscale(padded_rgb, threshold=6.0)
+        if was_grayscale:
+            wb_rgb = padded_rgb
+        elif wb_point is not None:
+            wb_rgb = apply_white_balance_from_point(padded_rgb, click_x=wb_point[0], click_y=wb_point[1])
+        elif mode == "manual":
+            # Chế độ thủ công: chưa chọn điểm tham chiếu -> bypass, giữ nguyên màu gốc
+            wb_rgb = padded_rgb
+        else:
+            # Chế độ tự động mặc định (mode == "auto"): Shades of Gray (Minkowski p=6)
+            wb_rgb = apply_white_balance(padded_rgb, p=6, max_shift_thresh=35.0)
 
-    # Bước 3: Phục hồi CodeFormer (w=0.7)
-    cf_rgb = run_codeformer(wb_rgb, fidelity_weight=0.7)
+    # Bước 3: Phục hồi CodeFormer
+    cf_rgb = run_codeformer(wb_rgb, fidelity_weight=fidelity_weight)
     preprocessed_bgr = cv2.cvtColor(cf_rgb, cv2.COLOR_RGB2BGR)
     return preprocessed_bgr, new_kps
 
@@ -197,6 +219,84 @@ def apply_white_balance(
     if return_info:
         info = {
             "p_norm": (round(float(norm_r), 4), round(float(norm_g), 4), round(float(norm_b), 4)),
+            "raw_gains": (round(raw_gain_r, 3), round(raw_gain_g, 3), round(raw_gain_b, 3)),
+            "clamped_gains": (round(clamped_gain_r, 3), round(clamped_gain_g, 3), round(clamped_gain_b, 3)),
+            "max_shift": round(max_shift, 1),
+            "alpha": round(alpha, 2),
+        }
+        return out_rgb, info
+    return out_rgb
+
+
+def apply_white_balance_from_point(
+    image_rgb: np.ndarray,
+    click_x: int,
+    click_y: int,
+    gain_min: float = 0.75,
+    gain_max: float = 1.30,
+    max_shift_thresh: float = 35.0,
+    patch_radius: int = 2,
+    return_info: bool = False
+) -> Union[np.ndarray, Tuple[np.ndarray, Dict[str, Any]]]:
+    """Chế độ Thủ công: Tính gain màu sao cho pixel tại (click_x, click_y) trở thành xám trung tính (R=G=B),
+    áp gain đó cho toàn ảnh. Đơn giản hơn Shades of Gray — chỉ dựa vào 1 điểm người dùng tự chọn trên ảnh gốc.
+    Bảo toàn độ an toàn màu sắc:
+    - Magnitude clamp: giới hạn gain trong khoảng an toàn [gain_min, gain_max] (chuẩn [0.75, 1.30]).
+    - Dynamic Alpha Blending: nếu max_shift > max_shift_thresh (35.0), hòa trộn fallback với ảnh gốc.
+    """
+    H, W = image_rgb.shape[:2]
+    cx = max(0, min(int(click_x), W - 1))
+    cy = max(0, min(int(click_y), H - 1))
+
+    # Lấy mẫu trung bình vùng lân cận bán kính patch_radius (mặc định 5x5) để triệt tiêu nhiễu hạt cảm biến
+    y0 = max(0, cy - patch_radius)
+    y1 = min(H, cy + patch_radius + 1)
+    x0 = max(0, cx - patch_radius)
+    x1 = min(W, cx + patch_radius + 1)
+    patch = image_rgb[y0:y1, x0:x1].astype(np.float64)
+
+    r = float(np.mean(patch[:, :, 0]))
+    g = float(np.mean(patch[:, :, 1]))
+    b = float(np.mean(patch[:, :, 2]))
+
+    gray_target = (r + g + b) / 3.0
+
+    raw_gain_r = float(gray_target / max(r, 1e-6))
+    raw_gain_g = float(gray_target / max(g, 1e-6))
+    raw_gain_b = float(gray_target / max(b, 1e-6))
+
+    # Kẹp gains vào khoảng an toàn [gain_min, gain_max]
+    clamped_gain_r = float(np.clip(raw_gain_r, gain_min, gain_max))
+    clamped_gain_g = float(np.clip(raw_gain_g, gain_min, gain_max))
+    clamped_gain_b = float(np.clip(raw_gain_b, gain_min, gain_max))
+
+    # Áp dụng gains đã kẹp
+    img_float = image_rgb.astype(np.float32)
+    wb_temp = np.zeros_like(img_float)
+    wb_temp[:, :, 0] = np.clip(img_float[:, :, 0] * clamped_gain_r, 0, 255)
+    wb_temp[:, :, 1] = np.clip(img_float[:, :, 1] * clamped_gain_g, 0, 255)
+    wb_temp[:, :, 2] = np.clip(img_float[:, :, 2] * clamped_gain_b, 0, 255)
+
+    # Đo độ lệch màu thực tế
+    avg_r = float(np.mean(img_float[:, :, 0]))
+    avg_g = float(np.mean(img_float[:, :, 1]))
+    avg_b = float(np.mean(img_float[:, :, 2]))
+
+    shift_r = abs(float(np.mean(wb_temp[:, :, 0])) - avg_r)
+    shift_g = abs(float(np.mean(wb_temp[:, :, 1])) - avg_g)
+    shift_b = abs(float(np.mean(wb_temp[:, :, 2])) - avg_b)
+    max_shift = max(shift_r, shift_g, shift_b)
+
+    # Dynamic Alpha Blending nếu max_shift > max_shift_thresh
+    alpha = max_shift_thresh / (max_shift + 1e-6) if max_shift > max_shift_thresh else 1.0
+
+    blended = img_float * (1.0 - alpha) + wb_temp * alpha
+    out_rgb = np.clip(blended, 0, 255).astype(np.uint8)
+
+    if return_info:
+        info = {
+            "click_point": (cx, cy),
+            "sampled_rgb": (round(r, 1), round(g, 1), round(b, 1)),
             "raw_gains": (round(raw_gain_r, 3), round(raw_gain_g, 3), round(raw_gain_b, 3)),
             "clamped_gains": (round(clamped_gain_r, 3), round(clamped_gain_g, 3), round(clamped_gain_b, 3)),
             "max_shift": round(max_shift, 1),

@@ -97,6 +97,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNewSearch, onSelectHistory }
       <div className="p-3 border-b border-[#E5E7EB]">
         <button
           onClick={handleNewSearch}
+          data-testid="sidebar-new-search-btn"
           className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-medium text-xs text-white bg-[#E8804A] hover:bg-[#D97706] shadow-sm hover:shadow transition-all hover-lift cursor-pointer ${
             isSidebarCollapsed ? 'px-0' : ''
           }`}
@@ -160,6 +161,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNewSearch, onSelectHistory }
                 <button
                   key={item.job_id}
                   onClick={() => handleItemClick(item)}
+                  data-testid="history-item"
+                  data-job-id={item.job_id}
                   title={`Xem lại phiên: ${item.top_identity || item.job_id}`}
                   className={`w-full text-left rounded-lg transition-all flex items-center gap-2 p-2 hover-lift cursor-pointer ${
                     isSelected

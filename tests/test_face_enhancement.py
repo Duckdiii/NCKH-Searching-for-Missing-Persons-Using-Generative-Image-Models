@@ -2,7 +2,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from src.utils.face_enhancement import apply_adaptive_padding, apply_white_balance, run_codeformer
+from src.utils.face_enhancement import (
+    apply_adaptive_padding,
+    apply_white_balance,
+    apply_white_balance_from_point,
+    run_codeformer,
+)
 
 
 def test_apply_adaptive_padding_adds_border_when_needed():
@@ -85,4 +90,62 @@ def test_preprocess_face_image_with_direct_bbox_and_grayscale():
     # For grayscale, colors should remain completely neutral (R=G=B)
     assert np.all(preprocessed_bgr[:, :, 0] == preprocessed_bgr[:, :, 1])
     assert np.all(preprocessed_bgr[:, :, 1] == preprocessed_bgr[:, :, 2])
+
+
+def test_apply_white_balance_from_point():
+    # Sepia/tinted image: Red=200, Green=160, Blue=80
+    img = np.zeros((100, 100, 3), dtype=np.uint8)
+    img[:, :, 0] = 200
+    img[:, :, 1] = 160
+    img[:, :, 2] = 80
+
+    out, info = apply_white_balance_from_point(img, click_x=50, click_y=50, return_info=True)
+    assert out.shape == (100, 100, 3)
+    assert info["click_point"] == (50, 50)
+    # Gain should boost blue (underrepresented) and lower red
+    assert info["clamped_gains"][2] > 1.0
+    assert info["clamped_gains"][0] < 1.0
+
+
+def test_apply_white_balance_from_point_bounds_and_safety_clamp():
+    img = np.zeros((100, 100, 3), dtype=np.uint8)
+    img[:, :, 0] = 255  # Pure red -> extreme imbalance
+
+    # Click outside bounds should safely clamp to (99, 99)
+    out, info = apply_white_balance_from_point(img, click_x=150, click_y=-10, return_info=True)
+    assert out.shape == (100, 100, 3)
+    assert info["click_point"] == (99, 0)
+    # Gains must be within safety clamp [0.75, 1.30]
+    for g in info["clamped_gains"]:
+        assert 0.75 <= g <= 1.30
+    # Dynamic alpha should be active (alpha < 1.0) because of extreme color shift
+    assert info["alpha"] <= 1.0
+
+
+def test_preprocess_face_image_manual_options():
+    from src.utils.face_enhancement import preprocess_face_image
+
+    img_bgr = np.ones((100, 100, 3), dtype=np.uint8) * 150
+    kps = np.array([[30, 40], [70, 40], [50, 60], [35, 80], [65, 80]], dtype=np.float32)
+
+    # 1. Padding disabled -> should keep 100x100
+    no_pad, kps_no_pad = preprocess_face_image(img_bgr, kps=kps, padding_enabled=False)
+    assert no_pad.shape == (100, 100, 3)
+    np.testing.assert_allclose(kps_no_pad, kps)
+
+    # 2. White balance from point
+    tinted_bgr = np.zeros((100, 100, 3), dtype=np.uint8)
+    tinted_bgr[:, :, 0] = 80   # B
+    tinted_bgr[:, :, 1] = 160  # G
+    tinted_bgr[:, :, 2] = 200  # R
+    out_bgr, _ = preprocess_face_image(
+        tinted_bgr,
+        kps=kps,
+        padding_enabled=False,
+        white_balance_enabled=True,
+        wb_point=(50, 50),
+        fidelity_weight=0.7
+    )
+    assert out_bgr.shape == (100, 100, 3)
+
 

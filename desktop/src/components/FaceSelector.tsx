@@ -10,13 +10,19 @@ export const FaceSelector: React.FC = () => {
   const [naturalDim, setNaturalDim] = useState<{ w: number; h: number } | null>(null);
   const [displayDim, setDisplayDim] = useState<{ w: number; h: number } | null>(null);
 
+  // Tự động chọn nếu chỉ có đúng 1 khuôn mặt
+  useEffect(() => {
+    if (store.faces.length === 1 && store.sessionId && !store.croppedPreviewUrl) {
+      selectFace(store.sessionId, 0);
+    }
+  }, [store.faces.length, store.sessionId, store.croppedPreviewUrl, selectFace]);
+
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     setNaturalDim({ w: img.naturalWidth, h: img.naturalHeight });
     setDisplayDim({ w: img.clientWidth, h: img.clientHeight });
 
-    // Tự động chọn nếu chỉ có đúng 1 khuôn mặt
-    if (store.faces.length === 1 && store.sessionId && store.selectedFaceIdx === null) {
+    if (store.faces.length === 1 && store.sessionId && !store.croppedPreviewUrl) {
       selectFace(store.sessionId, 0);
     }
   };

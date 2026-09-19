@@ -9,6 +9,7 @@ import {
   ArrowRight,
   Command,
   X,
+  Sparkles,
 } from 'lucide-react';
 
 interface CommandPaletteProps {
@@ -40,7 +41,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { isAdvancedMode, toggleAdvancedMode, startNewSearch, jobResult } = useSearchStore();
+  const {
+    isAdvancedMode,
+    toggleAdvancedMode,
+    startNewSearch,
+    jobResult,
+    isDemoMode,
+    toggleDemoMode,
+  } = useSearchStore();
 
   const hasResults = Boolean(jobResult && jobResult.status === 'done');
 
@@ -84,6 +92,20 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       available: true,
     },
     {
+      id: 'toggle_demo_mode',
+      title: isDemoMode ? 'Tắt Chế độ Demo' : 'Bật Chế độ Demo',
+      subtitle: isDemoMode
+        ? 'Khóa lại điều hướng wizard theo tiến trình thật'
+        : 'Mở khóa điều hướng wizard (dùng cho thuyết trình/demo)',
+      icon: <Sparkles className="w-4 h-4 text-[#D97706]" />,
+      badge: isDemoMode ? 'Đang BẬT' : 'Đang TẮT',
+      action: () => {
+        toggleDemoMode();
+        onClose();
+      },
+      available: true,
+    },
+    {
       id: 'go_to_results',
       title: 'Đi tới bước Kết quả đối soát',
       subtitle: 'Xem bảng xếp hạng và hình ảnh nhận diện của phiên này',
@@ -92,7 +114,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         if (onSelectGoToResults) onSelectGoToResults();
         onClose();
       },
-      available: hasResults,
+      available: hasResults || isDemoMode,
     },
   ];
 

@@ -229,6 +229,7 @@ class Editor:
         self.debug_check_nan = debug_check_nan
 
         self.live_capture_resolution = (min(self.image_size // 16, 16)) ** 2
+        self.last_local_blend_mask = None
 
         self.vae = None
         self.unet = None
@@ -473,6 +474,7 @@ class Editor:
                                 word_inds_edit=word_inds_edit,
                                 threshold=lb_threshold,
                             )
+                            self.last_local_blend_mask = mask.detach().cpu()
                         injector.captured_cross["recon"].clear()
                         injector.captured_cross["edit"].clear()
 
