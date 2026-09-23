@@ -11,7 +11,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-from backend.api.routers import health, jobs, session
+from backend.api.routers import health, jobs, session, video_verify
 
 app = FastAPI(
     title="Missing Person Search API",
@@ -38,6 +38,7 @@ if os.path.exists("data"):
 app.include_router(health.router)
 app.include_router(session.router)
 app.include_router(jobs.router)
+app.include_router(video_verify.router)
 
 
 def get_free_port() -> int:

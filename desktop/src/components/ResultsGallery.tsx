@@ -18,6 +18,7 @@ import {
 import { exportRankingToCSV, exportReportPrint } from '../utils/exportReport';
 import { ImageWithSkeleton } from './ImageWithSkeleton';
 import { CountUpNumber } from './CountUpNumber';
+import { VideoVerify } from './VideoVerify';
 
 interface LightboxState {
   url: string;
@@ -538,6 +539,9 @@ export const ResultsGallery: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* 4. Đối soát bổ sung bằng video (sau kết quả FADING) */}
+      <VideoVerify jobId={jobResult.job_id} />
 
       {/* 5. Lightbox Modal Phóng To Ảnh */}
       {lightboxImg && (

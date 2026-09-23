@@ -85,3 +85,22 @@ class JobResult(BaseModel):
     matched_gallery_image: Optional[str] = None
     pipeline_params: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
+
+
+class VideoFaceMatch(BaseModel):
+    face_image_url: str
+    frame_index: int
+    timestamp_sec: float
+    bbox: List[float] = Field(..., description="[x1, y1, x2, y2]")
+    det_score: float
+    best_age: int
+    best_age_image_url: str
+    score: float
+
+
+class VideoVerifyResponse(BaseModel):
+    job_id: str
+    frames_sampled: int
+    faces_found: int
+    best_match: Optional[VideoFaceMatch] = None
+    matches: List[VideoFaceMatch] = Field(default_factory=list)

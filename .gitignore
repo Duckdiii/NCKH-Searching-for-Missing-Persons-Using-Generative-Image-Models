@@ -77,3 +77,10 @@ dist/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ==============================================================================
+# 8. LOCAL RESEARCH SCRATCH & DOWNLOADED ARTIFACTS (khong push len GitHub)
+# ==============================================================================
+SKY_NET/
+docs/drive_output/
+configs/config.json

@@ -174,6 +174,8 @@ class DualAttentionInjector:
                                 attention_probs[:, :, :4] = ref_cross[:, :, :4]
                                 attention_probs[:, :, 7:] = ref_cross[:, :, 7:]
 
+                if attention_probs.dtype != value.dtype:
+                    attention_probs = attention_probs.to(value.dtype)
                 hidden_states = torch.bmm(attention_probs, value)
                 hidden_states = attn.batch_to_head_dim(hidden_states)
                 hidden_states = attn.to_out[0](hidden_states)

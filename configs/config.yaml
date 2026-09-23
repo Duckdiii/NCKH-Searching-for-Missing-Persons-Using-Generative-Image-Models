@@ -58,6 +58,9 @@ embedding:
   ctx_id: -1  # -1 = CPU (mặc định, tránh tranh chấp VRAM với các module diffusion), 0 = GPU
   det_size: [256, 256]  # KHÔNG dùng 640x640 mặc định - ảnh trong pipeline luôn là 256x256,
                         # 640x640 gây ~65% ảnh fail detect (đã xác nhận qua thử nghiệm thực tế)
+  video_ctx_id: 0  # Riêng bước đối soát video: 0 = GPU (pipeline diffusion đã xong nên VRAM
+                   # đã rảnh, detect nhanh gấp nhiều lần CPU); -1 = ép dùng CPU; nếu GPU lỗi
+                   # backend tự rơi về CPU. Frame video lớn cũng được thu nhỏ trước khi detect.
 
 # Module 5 - FAISS search
 search:
@@ -79,4 +82,4 @@ age_estimator:
 # Nguồn lấy INITIAL_AGE cho main.py: "mivolo" (mặc định, dùng được mọi ảnh) hoặc
 # "csv" (chỉ ảnh có trong labels_csv - để test/debug nhanh không cần chạy model).
 initial_age:
-  method: "mivolo"
+  method: "csv"

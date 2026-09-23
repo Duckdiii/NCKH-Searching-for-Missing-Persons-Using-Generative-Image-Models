@@ -91,3 +91,22 @@ export interface JobHistoryItem {
   photo_year?: number | null;
   gender_word?: string | null;
 }
+
+export interface VideoFaceMatch {
+  face_image_url: string;
+  frame_index: number;
+  timestamp_sec: number;
+  bbox: [number, number, number, number];
+  det_score: number;
+  best_age: number;
+  best_age_image_url: string;
+  score: number;
+}
+
+export interface VideoVerifyResponse {
+  job_id: string;
+  frames_sampled: number;
+  faces_found: number;
+  best_match: VideoFaceMatch | null;
+  matches: VideoFaceMatch[];
+}
