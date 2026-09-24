@@ -70,6 +70,7 @@ dist/
 # ==============================================================================
 .env
 .env.*
+!.env.example
 .streamlit/secrets.toml
 .vscode/
 .idea/

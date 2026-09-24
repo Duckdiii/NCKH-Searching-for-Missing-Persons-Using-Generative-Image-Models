@@ -12,6 +12,7 @@ Từ 1 ảnh thật + Initial Age (IA, nhập tay) và model UNet đã specializ
 Tham khảo: https://github.com/MunchkinChen/FADING (null_inversion.py, p2p.py)
 """
 
+from src.utils.cancellation import checkpoint
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -259,6 +260,7 @@ class NullTextInverter:
         pivot_latents = [latent]
         timesteps = self.scheduler.timesteps
         for i in range(self.num_inference_steps):
+            checkpoint()
             t = timesteps[len(timesteps) - i - 1]
             with torch.no_grad():
                 noise_pred = self._predict_noise(latent, t, cond_embedding)
@@ -283,6 +285,7 @@ class NullTextInverter:
         timesteps = self.scheduler.timesteps
 
         for i in range(self.num_inference_steps):
+            checkpoint()
             # Giữ uncond_embeddings ở FP32 trong lúc Adam tối ưu
             uncond_embeddings = uncond_embeddings.clone().detach().float().requires_grad_(True)
             # Lịch trình LR chuẩn kaggle_3: giữ 1e-2 cho 25 bước đầu, giảm dần về sau
@@ -295,6 +298,7 @@ class NullTextInverter:
                 noise_pred_cond = self._predict_noise(latent_cur, t, cond_embedding)
 
             for _ in range(self.num_inner_steps):
+                checkpoint()
                 noise_pred_uncond = self._predict_noise(latent_cur, t, uncond_embeddings.half())
                 noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_cond - noise_pred_uncond)
                 latent_prev_rec = self._ddim_prev_step(noise_pred, t, latent_cur)

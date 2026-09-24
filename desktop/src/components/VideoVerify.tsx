@@ -13,14 +13,44 @@ interface Props {
 export const VideoVerify: React.FC<Props> = ({ jobId }) => {
   const { backendPort } = useSearchStore();
   const [isUploading, setIsUploading] = useState(false);
+  const [isReverifying, setIsReverifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VideoVerifyResponse | null>(null);
+  // T08: nguồn video đã nạp — đối chiếu lại không cần tải lại video.
+  const [sourceIdInput, setSourceIdInput] = useState('');
 
   const baseUrl = `http://127.0.0.1:${backendPort}`;
   const resolveUrl = (path?: string | null) => {
     if (!path) return '';
     if (path.startsWith('data:') || path.startsWith('http://') || path.startsWith('https://')) return path;
     return `${baseUrl}${path.startsWith('/') ? path : '/' + path}`;
+  };
+
+  const parseDetail = (err: any): string => {
+    let detail: unknown = err.response?.data?.detail;
+    if (Array.isArray(detail)) {
+      detail = detail.map((d: any) => d?.msg || JSON.stringify(d)).join('; ');
+    }
+    return (detail as string) || '';
+  };
+
+  const handleReverify = async () => {
+    const sourceId = sourceIdInput.trim() || result?.source_id;
+    if (!sourceId) return;
+    setIsReverifying(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append('source_id', sourceId);
+      const res = await api.post<VideoVerifyResponse>(`/api/jobs/${jobId}/video-verify`, form, {
+        timeout: 300000,
+      });
+      setResult(res.data);
+    } catch (err: any) {
+      setError(parseDetail(err) || 'Không thể đối chiếu lại nguồn này.');
+    } finally {
+      setIsReverifying(false);
+    }
   };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,10 +112,38 @@ export const VideoVerify: React.FC<Props> = ({ jobId }) => {
           <span>{isUploading ? 'Đang trích frame & so khớp...' : 'Tải video lên (.mp4, .avi, .mov, ≤200MB)'}</span>
           <input type="file" accept="video/mp4,video/avi,video/quicktime,video/x-matroska,video/webm,.mp4,.avi,.mov,.mkv,.webm" onChange={handleFile} className="hidden" disabled={isUploading} />
         </label>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <input
+            value={sourceIdInput}
+            onChange={(e) => setSourceIdInput(e.target.value)}
+            placeholder={result?.source_id ? `Đối chiếu lại nguồn ${result.source_id.slice(0, 8)}…` : 'Dán source_id video đã nạp để đối chiếu lại…'}
+            className="flex-1 min-w-0 text-xs border border-[#E5E7EB] rounded-xl px-3 py-2.5 font-mono placeholder:font-sans"
+            disabled={isReverifying}
+          />
+          <button
+            onClick={handleReverify}
+            disabled={isReverifying || (!sourceIdInput.trim() && !result?.source_id)}
+            className="text-xs font-bold py-2.5 px-4 rounded-xl border border-[#E8804A] text-[#E8804A] hover:bg-[#FFF7ED] disabled:opacity-40 transition-colors whitespace-nowrap"
+          >
+            {isReverifying ? 'Đang đối chiếu...' : 'Đối chiếu lại'}
+          </button>
+        </div>
         {result && (
-          <p className="text-[11px] text-[#6B7280]">
-            Đã quét {result.frames_sampled} frame • phát hiện {result.faces_found} khuôn mặt
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[11px] text-[#6B7280]">
+              Đã quét {result.frames_sampled} frame • phát hiện {result.faces_found} khuôn mặt
+            </p>
+            {result.processing?.truncated && (
+              <p className="text-[11px] text-[#D97706] font-semibold" title="Video còn đoạn chưa xử lý (giới hạn số frame mỗi lần)">
+                • còn đoạn chưa xử lý{result.processing.frames_total ? ` (${result.processing.frames_total} frame gốc)` : ''}
+              </p>
+            )}
+            {result.conditions && Object.keys(result.conditions).length > 0 && (
+              <p className="text-[11px] text-[#6B7280] font-mono" title="Thống kê điều kiện frame (đã tiền xử lý: mưa/tối/chói/mù/ngược sáng/mờ)">
+                • {Object.entries(result.conditions).map(([k, v]) => `${k}: ${v}`).join(' • ')}
+              </p>
+            )}
+          </div>
         )}
       </div>
 

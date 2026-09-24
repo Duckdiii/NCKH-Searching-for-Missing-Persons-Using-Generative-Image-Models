@@ -11,6 +11,7 @@ tự do theo P_tau như bình thường. CHỈ can thiệp cross-attention, KHÔ
 Tham khảo: https://github.com/MunchkinChen/FADING (age_editing.py, p2p.py)
 """
 
+from src.utils.cancellation import checkpoint
 import os
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -338,6 +339,7 @@ class Editor:
 
         with torch.no_grad():
             for i in range(self.num_inference_steps):
+                checkpoint()
                 t = timesteps[i]
                 null_t = null_embeddings[i]
 
@@ -387,6 +389,7 @@ class Editor:
         results: Dict[int, str] = {}
 
         for target_age in target_ages:
+            checkpoint()
             p_tau = build_prompt_tau(target_age, gender_word)
             cond_embedding = self._encode_text(p_tau)
             latent = z_T.clone()
@@ -422,6 +425,7 @@ class Editor:
             injector.register()
             try:
                 for i in range(self.num_inference_steps):
+                    checkpoint()
                     t = timesteps[i]
                     null_t = null_embeddings[i]
 

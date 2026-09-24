@@ -1,41 +1,56 @@
 """Đối soát bổ sung bằng video (sau bước Kết quả FADING).
 
-Luồng: user upload 1 video sau khi job pipeline đã done ->
-backend trích frame (3 fps, tối đa 90 frame ~30s) -> InsightFace buffalo_l
-trên GPU (get_video_embedder, tự rơi về CPU nếu lỗi) detect_faces() trên
-từng frame đã thu nhỏ (cạnh dài 960px) -> crop mặt nét từ frame gốc theo
-bbox quy đổi -> embedding mặt video có sẵn trong Face.normed_embedding ->
-cosine similarity với embedding của từng ảnh FADING đã sinh (edited_images
-của job) -> trả về mặt có độ tương đồng cao nhất + top matches.
+Hai đường vào (T08):
+- file video mới: nạp thành nguồn search/video độc lập (face_media) rồi đối
+  chiếu; khi DB không sẵn sàng giữ nguyên luồng legacy (file tạm + RAM).
+- source_id đã nạp: đối chiếu lại mà KHÔNG xử lý lại video, không lưu trùng.
+Mọi lượt đối chiếu có DB đều lưu search_runs/search_results (T11): query là
+tập ảnh tạo sinh, candidate là crop quan sát, best_age liên kết ảnh tạo sinh
+cụ thể; accepted theo ngưỡng tách biệt xác nhận con người.
 """
+
+from src.utils.cancellation import checkpoint, TaskCancelled
+from backend.api.session_lifecycle import job_operation
 
 import glob
 import os
+import tempfile
 import uuid
+from collections import Counter
+from typing import Optional
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from backend.api.dependencies import get_video_embedder
+from backend.api.dependencies import get_config, get_video_embedder
+from backend.api.ingest import (
+    DETECT_MAX_DIM,
+    FPS_TARGET,
+    MAX_FRAMES,
+    MIN_DET_SCORE,
+    TOP_KEEP,
+    _crop_bbox,
+    _downscale_for_detect,
+    cosine_sim,
+    ingest_sampled_frames,
+    persist_video_source,
+    sample_video_frames,
+)
 from backend.api.schemas import VideoFaceMatch, VideoVerifyResponse
 from backend.api.session_store import get_job
+from backend.api.persistence import db_ping
+from src.preprocessing import preprocess_video_frame
 
 router = APIRouter(prefix="/api/jobs", tags=["video-verify"])
 
 VIDEO_EXTENSIONS = (".mp4", ".avi", ".mov", ".mkv", ".webm")
 MAX_VIDEO_BYTES = 200 * 1024 * 1024
-FPS_TARGET = 3  # mỗi giây video chỉ lấy 3 frame để detect/crop/so khớp
-MAX_FRAMES = 90  # tối đa ~30s video ở 3 fps
-DETECT_MAX_DIM = 960  # frame lớn hơn được thu nhỏ trước khi detect (detect nhanh hơn
-                      # nhiều mà embedding vẫn chuẩn vì recognition chỉ crop mặt 112x112)
-MIN_DET_SCORE = 0.3
-TOP_KEEP = 20
 
-
-def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
-    """Cosine similarity cho 2 vector đã L2-normalize (dot product)."""
-    return float(np.dot(a.astype(np.float64), b.astype(np.float64)))
+__all__ = [
+    "cosine_sim", "_crop_bbox", "_downscale_for_detect",
+    "_resolve_edited_paths",
+]
 
 
 def _resolve_edited_paths(job_id: str, edited_images: dict) -> dict:
@@ -76,42 +91,13 @@ def _resolve_edited_paths(job_id: str, edited_images: dict) -> dict:
     return resolved
 
 
-def _crop_bbox(frame_bgr: np.ndarray, bbox) -> np.ndarray:
-    h, w = frame_bgr.shape[:2]
-    x1, y1, x2, y2 = [int(v) for v in bbox]
-    x1, y1 = max(0, x1), max(0, y1)
-    x2, y2 = min(w, x2), min(h, y2)
-    if x2 <= x1 or y2 <= y1:
-        return frame_bgr
-    return frame_bgr[y1:y2, x1:x2]
-
-
-def _downscale_for_detect(frame_bgr: np.ndarray):
-    """Thu nhỏ frame lớn về cạnh dài = DETECT_MAX_DIM trước khi detect.
-
-    Trả về (frame_detect, scale): frame_detect đưa vào detect_faces(), bbox kết quả
-    nhân với 1/scale để crop trên frame gốc nét. Frame đã nhỏ thì giữ nguyên."""
-    h, w = frame_bgr.shape[:2]
-    longest = max(h, w)
-    if longest <= DETECT_MAX_DIM:
-        return frame_bgr, 1.0
-    scale = DETECT_MAX_DIM / float(longest)
-    small = cv2.resize(
-        frame_bgr, (max(1, int(w * scale)), max(1, int(h * scale))),
-        interpolation=cv2.INTER_AREA,
-    )
-    return small, scale
-
-
-@router.post("/{job_id}/video-verify", response_model=VideoVerifyResponse)
-async def video_verify(job_id: str, file: UploadFile = File(...)):
+def _resolve_reference(job_id: str) -> tuple[dict, dict]:
+    """Tìm edited_images của job (RAM trước, đĩa sau). Raise HTTPException."""
     job = get_job(job_id)
     raw_urls: dict = {}
     if job and job.status == "done" and job.result and job.result.get("edited_images"):
         raw_urls = dict(job.result["edited_images"])
     if not raw_urls:
-        # Fallback đĩa: store job chỉ lưu in-memory nên mất khi backend restart,
-        # hoặc khi xem lại job cũ từ lịch sử — dựng lại từ age_*.png trên đĩa.
         for fpath in sorted(glob.glob(os.path.join("outputs", "jobs", job_id, "age_*.*"))):
             base = os.path.splitext(os.path.basename(fpath))[0]  # age_30
             try:
@@ -129,7 +115,284 @@ async def video_verify(job_id: str, file: UploadFile = File(...)):
             status_code=404,
             detail="Không tìm thấy job (kể cả trên đĩa). Hãy chạy lại pipeline FADING rồi thử lại.",
         )
+    return job, raw_urls
 
+
+def _embed_references(job_id: str, raw_urls: dict, embedder) -> tuple[dict, dict]:
+    edited_paths = _resolve_edited_paths(job_id, raw_urls)
+    if not edited_paths:
+        raise HTTPException(status_code=400, detail="Không tìm thấy file ảnh FADING đã sinh của job.")
+    ref_embeddings = {}
+    ref_urls = {}
+    for age, fpath in edited_paths.items():
+        try:
+            ref_embeddings[age] = embedder.embed(fpath)
+            ref_urls[age] = raw_urls.get(str(age), raw_urls.get(age, f"/outputs/jobs/{job_id}/{os.path.basename(fpath)}"))
+        except ValueError:
+            continue
+    if not ref_embeddings:
+        raise HTTPException(status_code=400, detail="Không trích được embedding từ ảnh FADING đã sinh.")
+    return ref_embeddings, ref_urls
+
+
+def _match_records(records: list[dict], ref_embeddings: dict, ref_urls: dict) -> list[VideoFaceMatch]:
+    """Đối chiếu các crop đã có embedding với tập ref (giữ nguyên thứ tự điểm)."""
+    matches: list[VideoFaceMatch] = []
+    for rec in records:
+        emb = rec.get("embedding")
+        if emb is None:
+            continue
+        face_emb = np.asarray(emb, dtype=np.float64)
+        best_age = max(ref_embeddings.keys(), key=lambda a: cosine_sim(face_emb, ref_embeddings[a]))
+        best_score = cosine_sim(face_emb, ref_embeddings[best_age])
+        matches.append(
+            VideoFaceMatch(
+                face_image_url=rec["url"],
+                frame_index=int(rec["frame_index"]),
+                timestamp_sec=round(float(rec["timestamp_sec"]), 2),
+                bbox=[float(v) for v in rec["bbox"]],
+                det_score=float(rec["det_score"]),
+                best_age=int(best_age),
+                best_age_image_url=str(ref_urls[best_age]),
+                score=float(best_score),
+            )
+        )
+    matches.sort(key=lambda m: m.score, reverse=True)
+    return matches[:TOP_KEEP]
+
+
+def _save_search_run(
+    *, job_id: str, source_id: str, matches: list[VideoFaceMatch],
+    crop_ids: list[str], threshold: float, ref_ages: list[int],
+    conditions: dict, truncated: bool,
+) -> Optional[str]:
+    """T11: lưu lượt đối chiếu (best_age = liên kết ảnh tạo sinh cụ thể)."""
+    try:
+        from backend.api import repositories as repo
+        from backend.api.database import get_pool
+        from backend.api.dependencies import get_config as _get_config
+        from backend.api.persistence import get_generation_job_detail
+
+        cfg = _get_config()
+        model_name = str(cfg.get("embedding", {}).get("model_name", "buffalo_l"))
+        variant_by_age: dict[int, str] = {}
+        db_job_id = None
+        detail = get_generation_job_detail(job_id)
+        if detail is not None:
+            db_job_id = detail["job_id"]
+            for variant in detail.get("variants", []):
+                variant_by_age.setdefault(int(variant["target_age"]), variant["id"])
+        with get_pool().connection() as conn:
+            run_id = repo.create_search_run(
+                conn, query_kind="generated_set",
+                scope_source_id=source_id, generation_job_id=db_job_id,
+                model_name=model_name, model_version=model_name,
+                preprocessing_version="video_preprocess_v1",
+                index_version="adhoc", threshold=float(threshold),
+                parameters={"edited_ages": sorted(ref_ages),
+                            "conditions": conditions, "truncated": truncated,
+                            "top_keep": TOP_KEEP})
+            for rank, (match, crop_id) in enumerate(zip(matches, crop_ids), start=1):
+                repo.add_search_result(
+                    conn, run_id=run_id, candidate_crop_id=crop_id,
+                    best_generated_image_id=variant_by_age.get(match.best_age),
+                    score=match.score, rank=rank,
+                    accepted_by_threshold=bool(match.score >= threshold))
+        return run_id
+    except Exception:
+        return None
+
+
+def _load_source_records(source_id: str, embedder) -> tuple[list[dict], list[str]]:
+    """Nạp crops của nguồn đã ingest + embed từng crop (không xử lý lại video)."""
+    from backend.api import repositories as repo
+    from backend.api.database import get_pool
+    from backend.api.storage import get_storage
+
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM face_media.sources WHERE id = %s", (source_id,))
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=404, detail="Không tìm thấy nguồn search.")
+        items, _ = repo.list_source_crops(conn, source_id=source_id, limit=500, offset=0)
+    storage = get_storage()
+    records, crop_ids = [], []
+    for item in items:
+        checkpoint()
+        try:
+            with storage.open(item["crop_key"]) as handle:
+                data = handle.read()
+        except FileNotFoundError:
+            continue
+        fd, tmp = tempfile.mkstemp(suffix=".jpg")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            embedding = np.asarray(embedder.embed(tmp), dtype=np.float64)
+        except ValueError:
+            continue
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        records.append({
+            "crop_id": item["crop_id"],
+            "url": storage.get_access_url(item["crop_key"]),
+            "frame_index": item["frame_index"],
+            "timestamp_sec": item["offset_ms"] / 1000.0,
+            "bbox": item["bbox"], "det_score": item["det_score"],
+            "embedding": embedding})
+        crop_ids.append(item["crop_id"])
+    return records, crop_ids
+
+
+@router.post("/{job_id}/video-verify", response_model=VideoVerifyResponse)
+@job_operation
+def video_verify(
+    job_id: str,
+    file: Optional[UploadFile] = File(None),
+    source_id: Optional[str] = Form(None),
+):
+    _, raw_urls = _resolve_reference(job_id)
+    if (file is None) == (source_id is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Chỉ định đúng một trong: file video mới hoặc source_id đã nạp.",
+        )
+    if source_id is not None and not db_ping():
+        raise HTTPException(
+            status_code=503,
+            detail="Database face_media không sẵn sàng — không thể đối chiếu source đã nạp.",
+        )
+    embedder = get_video_embedder()
+    ref_embeddings, ref_urls = _embed_references(job_id, raw_urls, embedder)
+    threshold = float(get_config().get("search", {}).get("rejection_threshold", 0.6))
+
+    if source_id is not None or db_ping():
+        return _verify_persisted(
+            job_id, raw_urls, ref_embeddings, ref_urls, embedder, threshold,
+            file=file, source_id=source_id)
+    assert file is not None
+    return _verify_legacy(
+        job_id, raw_urls, ref_embeddings, ref_urls, embedder, file)
+
+
+def _verify_persisted(
+    job_id: str, raw_urls: dict, ref_embeddings: dict, ref_urls: dict,
+    embedder, threshold: float,
+    *, file: Optional[UploadFile], source_id: Optional[str],
+) -> VideoVerifyResponse:
+    """Đối chiếu có lưu face_media (nguồn mới hoặc nguồn đã nạp)."""
+    from backend.api import repositories as repo
+    from backend.api.database import get_pool
+
+    conditions: dict = {}
+    truncated = False
+    frames_total = None
+    duration_sec = 0.0
+    crop_ids: list[str] = []
+    if source_id is not None:
+        records, crop_ids = _load_source_records(source_id, embedder)
+        faces_found = len(records)
+        frames_sampled = len({r["frame_index"] for r in records})
+    else:
+        assert file is not None
+        ext = os.path.splitext(file.filename or "")[1].lower()
+        if ext not in VIDEO_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Định dạng video không hỗ trợ ({ext or 'trống'}). Hỗ trợ: {', '.join(VIDEO_EXTENSIONS)}.",
+            )
+        video_bytes = file.file.read()
+        if not video_bytes:
+            raise HTTPException(status_code=400, detail="File video tải lên không có dữ liệu.")
+        if len(video_bytes) > MAX_VIDEO_BYTES:
+            raise HTTPException(status_code=400, detail="Video vượt quá 200MB.")
+        mime = (file.content_type or "").split(";")[0].strip().lower() or "video/mp4"
+        saved = persist_video_source(video_bytes=video_bytes, ext=ext, mime_type=mime)
+        if saved is None:
+            raise HTTPException(status_code=500, detail="Không lưu được video vào face_media.")
+        source_id = saved["source_id"]
+        fd, tmp_path = tempfile.mkstemp(suffix=ext)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(video_bytes)
+            preprocess_on = bool(get_config().get("video_preprocess", {}).get("enabled", True))
+            frames, meta = sample_video_frames(tmp_path)
+            frames_total = meta["frames_total"]
+            duration_sec = meta["duration_sec"]
+            truncated = meta["truncated"]
+            with get_pool().connection() as conn:
+                run_id = repo.create_ingestion_run(conn, source_id=source_id)
+                repo.update_ingestion_run(conn, run_id, status="running")
+            try:
+                ingested = ingest_sampled_frames(
+                    source_id=source_id, frames=frames, embedder=embedder,
+                    preprocess_on=preprocess_on, run_id=run_id)
+                ingest_status = "done"
+            except TaskCancelled:
+                with get_pool().connection() as conn:
+                    repo.update_ingestion_run(conn, run_id, status="canceled")
+                raise
+            except Exception as exc:
+                ingest_status = f"error: {type(exc).__name__}: {exc}"
+                ingested = {"faces_found": 0, "crops": [], "conditions": {}}
+            with get_pool().connection() as conn:
+                if ingest_status == "done":
+                    repo.update_ingestion_run(
+                        conn, run_id, status="done",
+                        frames_sampled=len(frames),
+                        faces_found=ingested["faces_found"],
+                        frames_total=frames_total, duration_sec=duration_sec,
+                        truncated=truncated)
+                else:
+                    repo.update_ingestion_run(
+                        conn, run_id, status="error",
+                        frames_sampled=len(frames),
+                        error_message=ingest_status[:2000])
+            conditions = ingested["conditions"]
+            records = ingested["crops"]
+            crop_ids = [r["crop_id"] for r in records]
+            faces_found = ingested["faces_found"]
+            frames_sampled = len(frames)
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+    assert source_id is not None
+    checkpoint()
+    matches = _match_records(records, ref_embeddings, ref_urls)
+    ordered_crop_ids = []
+    if crop_ids and matches:
+        by_url = {r["url"]: r["crop_id"] for r in records}
+        ordered_crop_ids = [by_url.get(m.face_image_url, "") for m in matches]
+    search_run_id = _save_search_run(
+        job_id=job_id, source_id=source_id, matches=matches,
+        crop_ids=ordered_crop_ids, threshold=threshold,
+        ref_ages=list(ref_embeddings.keys()), conditions=conditions,
+        truncated=truncated)
+    return VideoVerifyResponse(
+        job_id=job_id,
+        frames_sampled=frames_sampled,
+        faces_found=faces_found,
+        best_match=matches[0] if matches else None,
+        matches=matches,
+        conditions=conditions,
+        source_id=source_id,
+        search_run_id=search_run_id,
+        processing={"frames_total": frames_total, "duration_sec": duration_sec,
+                    "truncated": truncated},
+    )
+
+
+def _verify_legacy(
+    job_id: str, raw_urls: dict, ref_embeddings: dict, ref_urls: dict,
+    embedder, file: UploadFile,
+) -> VideoVerifyResponse:
+    """Luồng cũ khi DB không sẵn sàng: file tạm + thư mục job (giữ nguyên)."""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in VIDEO_EXTENSIONS:
         raise HTTPException(
@@ -137,7 +400,7 @@ async def video_verify(job_id: str, file: UploadFile = File(...)):
             detail=f"Định dạng video không hỗ trợ ({ext or 'trống'}). Hỗ trợ: {', '.join(VIDEO_EXTENSIONS)}.",
         )
 
-    video_bytes = await file.read()
+    video_bytes = file.file.read()
     if not video_bytes:
         raise HTTPException(status_code=400, detail="File video tải lên không có dữ liệu.")
     if len(video_bytes) > MAX_VIDEO_BYTES:
@@ -153,22 +416,6 @@ async def video_verify(job_id: str, file: UploadFile = File(...)):
     with open(video_path, "wb") as f:
         f.write(video_bytes)
 
-    # Embed ảnh FADING đã sinh (reference) — mỗi mốc tuổi 1 vector.
-    edited_paths = _resolve_edited_paths(job_id, raw_urls)
-    if not edited_paths:
-        raise HTTPException(status_code=400, detail="Không tìm thấy file ảnh FADING đã sinh của job.")
-    embedder = get_video_embedder()  # GPU (tự rơi về CPU nếu lỗi), vì pipeline đã xong
-    ref_embeddings = {}
-    ref_urls = {}
-    for age, fpath in edited_paths.items():
-        try:
-            ref_embeddings[age] = embedder.embed(fpath)
-            ref_urls[age] = raw_urls.get(str(age), raw_urls.get(age, f"/outputs/jobs/{job_id}/{os.path.basename(fpath)}"))
-        except ValueError:
-            continue
-    if not ref_embeddings:
-        raise HTTPException(status_code=400, detail="Không trích được embedding từ ảnh FADING đã sinh.")
-
     # Trích frame 3 fps, tối đa MAX_FRAMES (~30s video).
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -178,11 +425,14 @@ async def video_verify(job_id: str, file: UploadFile = File(...)):
         if fps <= 0 or fps > 120:
             fps = 25.0
         step = max(1, int(round(fps / FPS_TARGET)))
+        preprocess_on = bool(get_config().get("video_preprocess", {}).get("enabled", True))
         frame_idx = 0
         sampled = 0
         faces_found = 0
+        cond_counter: Counter = Counter()
         matches: list[VideoFaceMatch] = []
         while sampled < MAX_FRAMES:
+            checkpoint()
             ok = cap.grab()
             if not ok:
                 break
@@ -193,12 +443,18 @@ async def video_verify(job_id: str, file: UploadFile = File(...)):
                     continue
                 sampled += 1
                 timestamp = frame_idx / fps
+                # Tiền xử lý theo điều kiện (mưa/tối/chói/mù/...) trước khi detect.
+                if preprocess_on:
+                    frame, frame_report = preprocess_video_frame(frame)
+                    for c in frame_report.get("conditions", []):
+                        cond_counter[str(c)] += 1
                 detect_frame, scale = _downscale_for_detect(frame)
                 try:
                     faces = embedder.detect_faces(detect_frame)
                 except ValueError:
                     faces = []
                 for k, face in enumerate(faces):
+                    checkpoint()
                     det = float(face.det_score)
                     if det < MIN_DET_SCORE:
                         continue
@@ -230,6 +486,7 @@ async def video_verify(job_id: str, file: UploadFile = File(...)):
 
     matches.sort(key=lambda m: m.score, reverse=True)
     top_matches = matches[:TOP_KEEP]
+    conditions = dict(cond_counter)
 
     if not top_matches:
         return VideoVerifyResponse(
@@ -238,6 +495,7 @@ async def video_verify(job_id: str, file: UploadFile = File(...)):
             faces_found=faces_found,
             best_match=None,
             matches=[],
+            conditions=conditions,
         )
     return VideoVerifyResponse(
         job_id=job_id,
@@ -245,4 +503,5 @@ async def video_verify(job_id: str, file: UploadFile = File(...)):
         faces_found=faces_found,
         best_match=top_matches[0],
         matches=top_matches,
+        conditions=conditions,
     )

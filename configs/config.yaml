@@ -62,6 +62,11 @@ embedding:
                    # đã rảnh, detect nhanh gấp nhiều lần CPU); -1 = ép dùng CPU; nếu GPU lỗi
                    # backend tự rơi về CPU. Frame video lớn cũng được thu nhỏ trước khi detect.
 
+# Tien xu ly frame video/camera truoc khi detect (src/preprocessing):
+# tu nhan dien mua/toi/choi/mu/nguoc sang/mo roi tang cuong nhe bang OpenCV.
+video_preprocess:
+  enabled: true  # false = bo qua, dung frame goc (nhanh hon, kem on dinh dieu kien xau)
+
 # Module 5 - FAISS search
 search:
   top_k: 5

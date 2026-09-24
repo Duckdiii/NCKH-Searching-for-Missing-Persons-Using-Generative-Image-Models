@@ -159,6 +159,7 @@ def test_video_verify_disk_fallback_without_memory_job(tmp_path, monkeypatch):
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["best_match"] is not None
+    assert "conditions" in resp.json()
     jobs.clear()
 
 
