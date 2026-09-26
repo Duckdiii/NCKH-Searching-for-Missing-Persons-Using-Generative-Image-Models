@@ -82,6 +82,22 @@ def build_key(prefix: str, asset_id: str, mime_type: str) -> str:
     return f"{prefix}/{asset_id}{ext}"
 
 
+def build_dated_key(prefix: str, asset_id: str, mime_type: str, *,
+                    shard: str = "", date: str = "") -> str:
+    """Key chia prefix camera/ngày khi nhiều file (doc §4.3).
+
+    Chỉ thêm segment an toàn [A-Za-z0-9_-] và ngày YYYY-MM-DD; segment lạ →
+    bỏ qua (trở về build_key thường). DB lưu full key nên đường đọc không đổi.
+    """
+    import re as _re
+    safe = [prefix]
+    if shard and _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", shard):
+        safe.append(shard)
+    if date and _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        safe.append(date)
+    return build_key("/".join(safe), asset_id, mime_type)
+
+
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 

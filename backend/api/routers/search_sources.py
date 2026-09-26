@@ -271,14 +271,50 @@ def list_source_crops_view(
             conn, source_id=source_id, limit=limit, offset=offset)
     out = []
     for item in items:
+        frame_available = bool(item.get("frame_available", False))
+        frame_key = item.get("frame_key")
         out.append(SourceCropItem(
             crop_id=item["crop_id"], crop_key=item["crop_key"],
             crop_url=storage.get_access_url(item["crop_key"]),
             method=item["method"], bbox=item["bbox"],
             det_score=item["det_score"], frame_index=item["frame_index"],
             offset_ms=item["offset_ms"], captured_at=item["captured_at"],
-            frame_id=item["frame_id"]))
+            frame_id=item["frame_id"],
+            # P0: camera crop-only -> frame_available=false, frame_url=null;
+            # viewer chỉ hiển thị crop, không hứa xem bối cảnh đã bỏ.
+            frame_available=frame_available,
+            frame_url=(storage.get_access_url(frame_key) if frame_available and frame_key else None)))
     return CropListResponse(items=out, total=total, limit=limit, offset=offset)
+
+
+@router.get("/search-sources/crops/{crop_id}/thumb")
+def crop_thumb_view(crop_id: str, edge: int = Query(128, ge=32, le=512)):
+    """Thumbnail crop tạo khi đọc, cache RAM giới hạn (§4.2, không lưu bản phụ)."""
+    from fastapi.responses import Response
+
+    from backend.api import thumbs
+
+    _require_db()
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT a.storage_key FROM face_media.face_crops c
+                JOIN face_media.assets a ON a.id = c.asset_id
+                WHERE c.id = %s
+                """,
+                (crop_id,),
+            )
+            row = cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Crop không tồn tại.")
+    try:
+        data = thumbs.get_thumb(get_storage(), crop_id, row[0], edge=edge)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File crop đã mất.")
+    except (IOError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return Response(content=data, media_type="image/jpeg")
 
 
 @router.get("/ingestion-runs/{run_id}", response_model=IngestionRunStatus)
@@ -378,7 +414,7 @@ def _clear_source_frames(source_id: str) -> dict:
                 SELECT c.id, fa.storage_key, ff.id, fa2.storage_key,
                        e.id
                 FROM face_media.frames ff
-                JOIN face_media.assets fa2 ON fa2.id = ff.asset_id
+                LEFT JOIN face_media.assets fa2 ON fa2.id = ff.asset_id
                 LEFT JOIN face_media.face_detections d ON d.frame_id = ff.id
                 LEFT JOIN face_media.face_crops c ON c.detection_id = d.id
                 LEFT JOIN face_media.assets fa ON fa.id = c.asset_id
@@ -407,6 +443,13 @@ def _clear_source_frames(source_id: str) -> dict:
             cur.execute(
                 "DELETE FROM face_media.assets WHERE storage_key = ANY(%s)",
                 ([r[3] for r in rows if r[3]],))
+            # P1: dọn tracklet của nguồn (best-effort, DB chưa migrate 005 thì bỏ qua).
+            try:
+                cur.execute(
+                    "DELETE FROM face_media.tracklets WHERE source_id = %s",
+                    (source_id,))
+            except Exception:
+                pass
     for key in file_keys:
         storage.delete_quiet(key)
     return {"frames": len(frame_ids), "crops": len(crop_ids)}

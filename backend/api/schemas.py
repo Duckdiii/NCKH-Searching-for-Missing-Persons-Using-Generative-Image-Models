@@ -160,6 +160,8 @@ class SearchSourceItem(BaseModel):
     started_at: Optional[str] = None
     ended_at: Optional[str] = None
     created_at: str
+    # P0: chính sách lưu ('full' | 'crop_only'); camera mới luôn crop_only.
+    storage_policy: str = "full"
 
 
 class SourceListResponse(BaseModel):
@@ -180,6 +182,9 @@ class SourceCropItem(BaseModel):
     offset_ms: int
     captured_at: Optional[str] = None
     frame_id: str
+    # P0 viewer: luồng camera crop-only không có file toàn khung.
+    frame_available: bool = True
+    frame_url: Optional[str] = None
 
 
 class CropListResponse(BaseModel):
@@ -273,6 +278,82 @@ class CaptureSessionStatus(BaseModel):
     error_message: Optional[str] = None
 
 
+# ---------------- P2: identities ----------------
+
+class LinkTrackletRequest(BaseModel):
+    accept_threshold: Optional[float] = Field(None, ge=-1, le=1)
+    margin: Optional[float] = Field(None, ge=0, le=2)
+    site: str = "default"
+    calibrated: bool = False
+
+
+class LinkResult(BaseModel):
+    action: str
+    global_id: Optional[str] = None
+    assignment_id: Optional[str] = None
+    reason: Optional[str] = None
+    margin: Optional[float] = None
+
+
+class IdentityInfo(BaseModel):
+    identity_id: str
+    status: str
+    revision: int
+    last_seen_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    created_at: str
+
+
+class IdentityListResponse(BaseModel):
+    items: List[IdentityInfo] = Field(default_factory=list)
+    total: int = 0
+
+
+class MergeRequest(BaseModel):
+    winner_id: str
+    loser_id: str
+    reason: str = "manual_merge"
+
+
+class SplitRequest(BaseModel):
+    assignment_id: str
+    reason: str = "manual_split"
+
+
+class TopologyItem(BaseModel):
+    site: str = "default"
+    camera_a: Optional[str] = None
+    camera_b: Optional[str] = None
+    travel_sec_min: Optional[float] = None
+    travel_sec_typical: Optional[float] = None
+    travel_sec_max: Optional[float] = None
+    overlapping: bool = False
+    version: int = 1
+    note: Optional[str] = None
+
+
+# ---------------- P4: retention/ops ----------------
+
+class RetentionPolicyItem(BaseModel):
+    scope: str
+    ttl_days: int
+    quota_bytes: Optional[int] = None
+    enabled: bool = False
+    reason: Optional[str] = None
+
+
+class RetentionPolicyUpdate(BaseModel):
+    ttl_days: Optional[int] = Field(None, gt=0)
+    quota_bytes: Optional[int] = Field(None, gt=0)
+    enabled: Optional[bool] = None
+    reason: Optional[str] = None
+
+
+class GCRunRequest(BaseModel):
+    batch: int = Field(200, ge=1, le=2000)
+    dry_run: bool = True
+
+
 # ---------------- T10/T11: gallery + search runs ----------------
 
 class GallerySnapshotInfo(BaseModel):
@@ -283,6 +364,10 @@ class GallerySnapshotInfo(BaseModel):
     size: int
     skipped: int = 0
     built_at: str
+    # P3: version + watermark/phạm vi index (công bố rõ ràng).
+    version: int = 1
+    watermark_to: Optional[str] = None
+    scope: Dict[str, Any] = Field(default_factory=dict)
 
 
 class GalleryQueryRequest(BaseModel):

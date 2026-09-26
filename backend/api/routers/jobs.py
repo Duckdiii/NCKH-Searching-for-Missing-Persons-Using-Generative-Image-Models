@@ -47,13 +47,23 @@ def run_pipeline(session_id: str, req: RunPipelineRequest = RunPipelineRequest()
     if session.photo_year is None:
         raise HTTPException(status_code=400, detail="Chưa xác định năm chụp ảnh (photo_year).")
 
-    # Kiểm tra Mutex GPU: nếu đang có job chạy, trả 409 ngay lập tức
-    acquired = PIPELINE_LOCK.acquire(blocking=False)
+    # Admission GPU chung camera + diffusion (doc §3): ưu tiên inference
+    # camera khi VRAM thấp; giữ ngữ nghĩa 409 khi bận (có thể xếp chờ khi
+    # DIFFUSION_QUEUE_ON_BUSY=true).
+    from backend.api import gpu_admission
+    acquired, admission = gpu_admission.acquire_diffusion_slot()
     if not acquired:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Hệ thống đang bận xử lý tác vụ khác, vui lòng đợi job hiện tại hoàn tất."
-        )
+        reason = admission.get("reason", "busy")
+        # Giữ message 409 cũ cho tương thích; thêm hậu tố nguyên nhân mới.
+        detail = ("Hệ thống đang bận xử lý tác vụ khác, "
+                  "vui lòng đợi job hiện tại hoàn tất.")
+        if reason == "camera_priority_low_vram":
+            detail += (" (VRAM thấp trong khi camera đang inference — "
+                       "giảm phiên camera hoặc chuyển diffusion sang GPU khác.)")
+        elif reason == "queue_timeout":
+            detail = (f"Chờ diffusion slot quá {admission.get('position', '?')} lượt. "
+                      f"Thử lại sau.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
     task_event = None
     job_id = None

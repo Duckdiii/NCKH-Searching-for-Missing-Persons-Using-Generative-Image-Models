@@ -173,6 +173,225 @@ def _encode_jpg(image_bgr: np.ndarray) -> bytes:
     return bytes(buf)
 
 
+def persist_camera_tracklet(
+    conn, storage, *, source_id: str, camera_id: Optional[str],
+    track_local_id: str, frame_index: int, offset_ms: int,
+    captured_at: Optional[str], received_at: Optional[str],
+    source_timestamp: Optional[str], timestamp_uncertainty_ms: Optional[int],
+    frame_width: int, frame_height: int,
+    candidates: list[dict],
+    detector_name: str, detector_version: str, run_id: str,
+    preprocessing_base: Optional[dict] = None,
+    # Checkpoint sớm (§4.1): slot có revision, KHÔNG đóng tracklet.
+    close: bool = True, slot_revision: int = 0,
+    observation_count: int = 0,
+) -> dict:
+    """P0/P1 — Persist 1 tracklet camera theo chính sách crop-only.
+
+    - KHÔNG ghi file frame (search/frames); frame là metadata-only
+      (asset_id NULL, kèm source_width/height + timestamp provenance).
+    - Chỉ lưu 1–3 crop đã chọn từ tracker (candidates), mỗi crop encode JPEG
+      cạnh dài ≤256 Q85 qua camera_tracks.encode_crop_jpeg.
+    - Tạo tracklets row (idempotent theo source + local_track_id) rồi detections
+      gắn tracklet_id + crops + embeddings. Transaction ngắn do caller giữ.
+    - close=True (mặc định): chốt tracklet khi đóng. close=False: checkpoint
+      sớm cùng tracklet — touch hàng tracklet status open, ghi slot_revision
+      vào preprocessing để truy vết thay slot.
+    - Trả {tracklet_id, frame_id, slot_revision,
+      detections:[{detection_id, crop_id, ...}]}.
+
+    candidates: [{crop_bgr (copy), bbox, det_score, quality, blur, exposure,
+      frontal, face_area, embedding, kps}].
+    """
+    import uuid as _uuid
+
+    from backend.api import camera_tracks as ct
+    from backend.api import repositories as repo
+    from backend.api.storage import (
+        PREFIX_SEARCH_CROPS,
+        build_dated_key,
+        build_key,
+        sha256_bytes,
+    )
+
+    # Shard prefix camera/ngày cho crop camera (§4.3); tắt bằng
+    # SEARCH_SHARD_BY_CAMERA_DAY=false. Chỉ ảnh hưởng key mới.
+    import os as _os
+    shard_on = _os.environ.get(
+        "SEARCH_SHARD_BY_CAMERA_DAY", "true").strip().lower() == "true"
+
+    if not candidates:
+        raise ValueError("Tracklet không có candidate để persist.")
+    kept = candidates[: ct.MAX_CANDIDATES_PER_TRACKLET]
+
+    frame_id = str(_uuid.uuid4())
+    tracklet_id = str(_uuid.uuid5(_uuid.NAMESPACE_URL,
+                                  f"{source_id}/{track_local_id}"))
+    stored_keys: list[str] = []
+    try:
+        # Idempotent tracklet: ON CONFLICT không tạo trùng khi retry/checkpoint.
+        try:
+            repo.create_tracklet(
+                conn, source_id=source_id, camera_id=camera_id,
+                local_track_id=track_local_id, status="open",
+                started_at=captured_at, last_seen_at=captured_at,
+                observation_count=0,
+                quality_summary={"policy": "crop_only"},
+                tracklet_id=tracklet_id)
+        except repo.ConflictError:
+            pass
+        except RuntimeError:
+            # DB chưa migrate 005: bỏ qua tracklet row, vẫn lưu detection
+            # với track_id text để không mất dữ liệu.
+            tracklet_id = None  # type: ignore[assignment]
+        repo.create_frame(
+            conn, purpose="search", source_id=source_id, asset_id=None,
+            frame_index=int(frame_index), offset_ms=int(offset_ms),
+            captured_at=captured_at, frame_id=frame_id,
+            source_width=int(frame_width), source_height=int(frame_height),
+            received_at=received_at, source_timestamp=source_timestamp,
+            timestamp_uncertainty_ms=timestamp_uncertainty_ms)
+        detections = []
+        for face_index, cand in enumerate(kept):
+            checkpoint()
+            x1, y1, x2, y2 = (float(v) for v in cand["bbox"])
+            x1c = max(0.0, min(x1, float(frame_width)))
+            y1c = max(0.0, min(y1, float(frame_height)))
+            x2c = max(0.0, min(x2, float(frame_width)))
+            y2c = max(0.0, min(y2, float(frame_height)))
+            if x2c <= x1c or y2c <= y1c:
+                continue
+            kps = cand.get("kps")
+            landmarks = None
+            if kps is not None:
+                try:
+                    # Landmark quy về tọa độ crop để căn chỉnh lại (doc §4.2).
+                    import numpy as _np
+                    pts = _np.asarray(kps, dtype=float).reshape(-1, 2)
+                    crop_bgr = cand["crop_bgr"]
+                    ch0, cw0 = crop_bgr.shape[:2]
+                    # Ước lượng gốc crop từ bbox + pad 0.15 (đồng bộ copy_crop).
+                    bw, bh = max(1.0, x2c - x1c), max(1.0, y2c - y1c)
+                    ox, oy = x1c - bw * 0.15, y1c - bh * 0.15
+                    landmarks = [[float(x - ox), float(y - oy)] for x, y in pts]
+                    _ = (ch0, cw0)
+                except Exception:
+                    landmarks = None
+            quality = {"det_score": float(cand.get("det_score", 0.0)),
+                       "track_quality": float(cand.get("quality", 0.0)),
+                       "blur": float(cand.get("blur", 0.0)),
+                       "exposure": float(cand.get("exposure", 0.0)),
+                       "frontal": float(cand.get("frontal", 0.5)),
+                       "face_area": float(cand.get("face_area", 0.0)),
+                       "policy": "crop_only"}
+            try:
+                detection_id = repo.create_detection(
+                    conn, purpose="search", frame_id=frame_id,
+                    detector_name=detector_name, detector_version=detector_version,
+                    run_id=run_id, face_index=face_index,
+                    bbox=(x1c, y1c, x2c, y2c), confidence=float(cand.get("det_score", 0.0)),
+                    frame_width=int(frame_width), frame_height=int(frame_height),
+                    landmarks=landmarks, track_id=track_local_id,
+                    quality=quality, tracklet_id=tracklet_id)
+            except TypeError:
+                detection_id = repo.create_detection(
+                    conn, purpose="search", frame_id=frame_id,
+                    detector_name=detector_name, detector_version=detector_version,
+                    run_id=run_id, face_index=face_index,
+                    bbox=(x1c, y1c, x2c, y2c), confidence=float(cand.get("det_score", 0.0)),
+                    frame_width=int(frame_width), frame_height=int(frame_height),
+                    landmarks=landmarks, track_id=track_local_id, quality=quality)
+            crop_data, prov = ct.encode_crop_jpeg(cand["crop_bgr"])
+            ch, cw = cand["crop_bgr"].shape[:2]
+            # Provenance resize thực tế (doc §4.2: ghi transform/codec/preprocessing).
+            dh, dw = prov["size_dst"]
+            crop_id = str(_uuid.uuid4())
+            crop_asset_id = str(_uuid.uuid4())
+            if shard_on:
+                try:
+                    from datetime import datetime as _dt, timezone as _tz
+                    day = (_dt.fromisoformat(captured_at).date().isoformat()
+                           if captured_at else _dt.now(_tz.utc).date().isoformat())
+                except Exception:
+                    from datetime import datetime as _dt2, timezone as _tz2
+                    day = _dt2.now(_tz2.utc).date().isoformat()
+                crop_key = build_dated_key(
+                    PREFIX_SEARCH_CROPS, crop_asset_id, "image/jpeg",
+                    shard=str(camera_id or ""), date=day)
+            else:
+                crop_key = build_key(PREFIX_SEARCH_CROPS, crop_asset_id, "image/jpeg")
+            storage.put_bytes(crop_data, crop_key, mime_type="image/jpeg")
+            stored_keys.append(crop_key)
+            repo.create_asset(
+                conn, storage_key=crop_key, media_type="image",
+                mime_type="image/jpeg", sha256=sha256_bytes(crop_data),
+                byte_size=len(crop_data), width=int(dw), height=int(dh),
+                role="crop", asset_id=crop_asset_id)
+            preproc = dict(preprocessing_base or {})
+            preproc.update({"crop_method": "camera_tracklet",
+                            "codec": prov["codec"], "quality": prov["quality"],
+                            "size_src": prov["size_src"], "size_dst": prov["size_dst"],
+                            "bbox_original": [x1c, y1c, x2c, y2c],
+                            "slot_revision": int(slot_revision),
+                            "preprocessing_version": prov["preprocessing_version"]})
+            repo.create_crop(
+                conn, purpose="search", detection_id=detection_id,
+                asset_id=crop_asset_id, method="bbox",
+                preprocessing=preproc,
+                transform_to_source={"bbox_original": [x1c, y1c, x2c, y2c]},
+                crop_id=crop_id)
+            embedding = cand.get("embedding")
+            if embedding is not None:
+                try:
+                    from backend.api.gallery import current_embed_triple, emit_outbox
+                    m, mv, pv = current_embed_triple()
+                    emb_id = repo.create_embedding(
+                        conn, model_name=m, model_version=mv,
+                        preprocessing_version=pv, dimensions=len(embedding),
+                        values=[float(v) for v in embedding],
+                        normalized=True, crop_id=crop_id)
+                    # P3: commit vector + metadata + outbox cùng transaction.
+                    emit_outbox(conn, entity="embedding", entity_id=emb_id,
+                                op="upsert", triple=(m, mv, pv),
+                                payload={"crop_id": crop_id})
+                except Exception as exc:
+                    logger.debug("bỏ qua embedding crop %s: %s", crop_id, exc)
+            detections.append({"detection_id": detection_id, "crop_id": crop_id,
+                               "crop_key": crop_key, "bbox": [x1c, y1c, x2c, y2c],
+                               "det_score": float(cand.get("det_score", 0.0)),
+                               "quality": float(cand.get("quality", 0.0)),
+                               "embedding": embedding})
+        if tracklet_id is not None:
+            try:
+                if close:
+                    repo.close_tracklet(
+                        conn, tracklet_id, ended_at=captured_at,
+                        observation_count=observation_count or len(detections),
+                        quality_summary={"candidates": len(detections),
+                                         "slot_revision": int(slot_revision),
+                                         "policy": "crop_only"})
+                else:
+                    # Checkpoint sớm: giữ tracklet mở, cập nhật observation.
+                    repo.touch_tracklet(
+                        conn, tracklet_id, source_id=source_id,
+                        camera_id=camera_id, local_track_id=track_local_id,
+                        status="open", last_seen_at=captured_at,
+                        observation_count=observation_count or len(detections),
+                        quality_summary={"candidates": len(detections),
+                                         "slot_revision": int(slot_revision),
+                                         "policy": "crop_only"})
+            except Exception:
+                pass
+    except Exception:
+        for key in stored_keys:
+            storage.delete_quiet(key)
+        raise
+    return {"tracklet_id": tracklet_id, "frame_id": frame_id,
+            "frame_available": False, "frame_url": None,
+            "slot_revision": int(slot_revision),
+            "detections": detections}
+
+
 def persist_observation_frame(
     conn, storage, *, source_id: str, purpose: str,
     frame_bgr: np.ndarray, frame_index: int, offset_ms: int,
@@ -271,14 +490,18 @@ def persist_observation_frame(
             embedding = face.get("embedding")
             if embedding is not None:
                 try:
-                    from backend.api.gallery import current_embed_triple
+                    from backend.api.gallery import current_embed_triple, emit_outbox
                     m, mv, pv = current_embed_triple()
-                    repo.create_embedding(
+                    emb_id = repo.create_embedding(
                         conn, model_name=m, model_version=mv,
                         preprocessing_version=pv, dimensions=len(embedding),
                         values=[float(v) for v in embedding],
                         normalized=True, crop_id=crop_id,
                     )
+                    # P3: commit vector + metadata + outbox cùng transaction.
+                    emit_outbox(conn, entity="embedding", entity_id=emb_id,
+                                op="upsert", triple=(m, mv, pv),
+                                payload={"crop_id": crop_id})
                 except Exception as exc:
                     logger.debug("bỏ qua embedding crop %s: %s", crop_id, exc)
             detections.append(

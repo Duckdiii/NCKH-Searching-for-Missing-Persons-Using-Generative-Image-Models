@@ -16,7 +16,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from contextlib import asynccontextmanager
 
 from backend.api.database import close_pool, init_pool
-from backend.api.routers import cameras, health, jobs, search_runs, search_sources, session, video_verify
+from backend.api.routers import cameras, health, identities, jobs, ops, search_runs, search_sources, session, video_verify
 
 
 @asynccontextmanager
@@ -39,7 +39,34 @@ async def lifespan(app: FastAPI):
             print(f"[database] reconcile interrupted: {counts}")
     except Exception as exc:
         print(f"[database] reconcile bỏ qua: {exc}")
+    # P3: worker outbox nền — áp dụng event vector vào delta index định kỳ
+    # (ít nhất một lần, dedupe event_id, một writer). Tắt bằng
+    # INDEX_DRAIN_INTERVAL_SEC=0. Daemon, không chặn shutdown.
+    _drain_stop: list = []
+    _drain_thread = None
+    try:
+        interval = float(os.environ.get("INDEX_DRAIN_INTERVAL_SEC", "30"))
+    except ValueError:
+        interval = 30.0
+    if interval > 0:
+        import threading as _th
+
+        def _drain_loop() -> None:
+            import time as _time
+            while not _drain_stop:
+                try:
+                    from backend.api import gallery as _gal
+                    out = _gal.drain_outbox_once()
+                    if out.get("applied") or out.get("deleted"):
+                        print(f"[index] outbox drain: {out}")
+                except Exception as exc:
+                    print(f"[index] drain bỏ qua: {exc}")
+                _time.sleep(interval)
+
+        _drain_thread = _th.Thread(target=_drain_loop, daemon=True)
+        _drain_thread.start()
     yield
+    _drain_stop.append(True)
     # Đóng pool lúc shutdown để không rò connection.
     try:
         close_pool()
@@ -93,6 +120,8 @@ app.include_router(video_verify.router)
 app.include_router(search_sources.router)
 app.include_router(cameras.router)
 app.include_router(search_runs.router)
+app.include_router(identities.router)
+app.include_router(ops.router)
 
 
 def get_free_port() -> int:

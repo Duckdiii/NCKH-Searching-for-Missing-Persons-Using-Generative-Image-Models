@@ -39,7 +39,7 @@ def _require_db() -> None:
 
 @router.post("/gallery/rebuild", response_model=GallerySnapshotInfo)
 def rebuild_gallery_view():
-    """T10: dựng lại snapshot gallery từ DB (atomic swap)."""
+    """T10/P3: dựng lại snapshot gallery từ DB (batch + watermark, atomic swap)."""
     _require_db()
     try:
         return GallerySnapshotInfo(**gallery_service.rebuild_gallery())
@@ -51,7 +51,37 @@ def rebuild_gallery_view():
 def list_snapshots_view():
     _require_db()
     return {"snapshots": gallery_service.list_snapshots(),
-            "current_triple": list(current_embed_triple())}
+            "current_triple": list(current_embed_triple()),
+            "delta": gallery_service.get_delta_stats()}
+
+
+@router.get("/index/status")
+def index_status_view():
+    """P3: watermark/lag/latency index — tìm delta nếu có; trả phạm vi đã lập chỉ mục."""
+    _require_db()
+    try:
+        with get_pool().connection() as conn:
+            lag = gallery_service.outbox_lag(conn)
+    except Exception:
+        lag = -1
+    return {"snapshots": gallery_service.list_snapshots(),
+            "delta": gallery_service.get_delta_stats(),
+            "latency_ms": gallery_service.get_latency_stats(),
+            "outbox_pending": lag}
+
+
+@router.post("/index/drain")
+def index_drain_view(limit: int = 200):
+    """P3: chạy worker outbox một lượt (áp dụng event vào delta)."""
+    _require_db()
+    return gallery_service.drain_outbox_once(limit=max(1, min(limit, 2000)))
+
+
+@router.post("/index/compact")
+def index_compact_view(snapshot_key: str = None):
+    """P3: compact delta quá tuổi/số lượng vào base (rebuild, §6 TTL RAM)."""
+    _require_db()
+    return gallery_service.compact_index(snapshot_key)
 
 
 def _query_vector_from_crop(crop_id: str) -> np.ndarray:
