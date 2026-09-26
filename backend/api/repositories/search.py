@@ -316,19 +316,37 @@ def get_search_run_detail(conn, run_id: str) -> dict:
 
 
 # ---------------------------------------------------- sources/crops paging ---
+def _source_storage_policy(conn) -> bool:
+    """True khi cột sources.storage_policy tồn tại (đã migrate 005)."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'face_media' AND table_name = 'sources'
+                  AND column_name = 'storage_policy'
+                """
+            )
+            return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
 def list_sources(
     conn, *, purpose: Optional[str] = None, limit: int = 50, offset: int = 0,
 ) -> tuple[list[dict], int]:
     if purpose is not None and purpose not in ("reference", "search"):
         raise ValueError(f"purpose không hợp lệ: {purpose!r}.")
+    has_policy = _source_storage_policy(conn)
+    policy_col = ", storage_policy" if has_policy else ""
     with conn.cursor() as cur:
         if purpose is None:
             cur.execute("SELECT count(*) FROM face_media.sources")
             total = int(cur.fetchone()[0])
             cur.execute(
-                """
+                f"""
                 SELECT id, purpose, kind, original_asset_id, camera_id,
-                       started_at, ended_at, created_at
+                       started_at, ended_at, created_at{policy_col}
                 FROM face_media.sources ORDER BY created_at DESC LIMIT %s OFFSET %s
                 """,
                 (limit, offset),
@@ -339,56 +357,102 @@ def list_sources(
             )
             total = int(cur.fetchone()[0])
             cur.execute(
-                """
+                f"""
                 SELECT id, purpose, kind, original_asset_id, camera_id,
-                       started_at, ended_at, created_at
+                       started_at, ended_at, created_at{policy_col}
                 FROM face_media.sources WHERE purpose = %s
                 ORDER BY created_at DESC LIMIT %s OFFSET %s
                 """,
                 (purpose, limit, offset),
             )
-        items = [
-            {
+        items = []
+        for r in cur.fetchall():
+            item = {
                 "source_id": r[0], "purpose": r[1], "kind": r[2],
                 "original_asset_id": r[3], "camera_id": r[4],
                 "started_at": str(r[5]) if r[5] else None,
                 "ended_at": str(r[6]) if r[6] else None,
                 "created_at": str(r[7]),
             }
-            for r in cur.fetchall()
-        ]
+            if has_policy:
+                item["storage_policy"] = r[8]
+            else:
+                # Fallback: camera kind coi như crop_only sau P0, còn lại full.
+                item["storage_policy"] = "crop_only" if r[2] == "camera" else "full"
+            items.append(item)
     return items, total
 
 
 def list_source_crops(
     conn, *, source_id: str, limit: int = 50, offset: int = 0,
 ) -> tuple[list[dict], int]:
-    """Crop quan sát thuộc nguồn (join trực tiếp, không phụ thuộc view)."""
+    """Crop quan sát thuộc nguồn (join trực tiếp, không phụ thuộc view).
+
+    P0: dùng LEFT JOIN asset frame (metadata-only có asset_id NULL) để không
+    làm mất kết quả crop-only; trả frame_available để viewer không hứa bối cảnh.
+    P4: ẩn crop đã tombstone (ledger pending) — thiếu bảng ledger thì bỏ qua.
+    """
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT count(*) FROM face_media.face_crops c
-            JOIN face_media.face_detections d ON d.id = c.detection_id
-            JOIN face_media.frames f ON f.id = d.frame_id
-            WHERE f.source_id = %s
-            """,
-            (source_id,),
-        )
-        total = int(cur.fetchone()[0])
-        cur.execute(
-            """
-            SELECT c.id, a.storage_key, c.method,
-                   d.x1, d.y1, d.x2, d.y2, d.confidence,
-                   f.frame_index, f.offset_ms, f.captured_at, f.id
-            FROM face_media.face_crops c
-            JOIN face_media.assets a ON a.id = c.asset_id
-            JOIN face_media.face_detections d ON d.id = c.detection_id
-            JOIN face_media.frames f ON f.id = d.frame_id
-            WHERE f.source_id = %s
-            ORDER BY f.frame_index, c.created_at LIMIT %s OFFSET %s
-            """,
-            (source_id, limit, offset),
-        )
+        try:
+            cur.execute(
+                """
+                SELECT count(*) FROM face_media.face_crops c
+                JOIN face_media.face_detections d ON d.id = c.detection_id
+                JOIN face_media.frames f ON f.id = d.frame_id
+                LEFT JOIN face_media.deletion_ledger l
+                  ON l.crop_id = c.id AND l.done = false
+                WHERE f.source_id = %s AND l.id IS NULL
+                """,
+                (source_id,),
+            )
+            total = int(cur.fetchone()[0])
+            cur.execute(
+                """
+                SELECT c.id, a.storage_key, c.method,
+                       d.x1, d.y1, d.x2, d.y2, d.confidence,
+                       f.frame_index, f.offset_ms, f.captured_at, f.id,
+                       fa.storage_key
+                FROM face_media.face_crops c
+                JOIN face_media.assets a ON a.id = c.asset_id
+                JOIN face_media.face_detections d ON d.id = c.detection_id
+                JOIN face_media.frames f ON f.id = d.frame_id
+                LEFT JOIN face_media.assets fa ON fa.id = f.asset_id
+                LEFT JOIN face_media.deletion_ledger l
+                  ON l.crop_id = c.id AND l.done = false
+                WHERE f.source_id = %s AND l.id IS NULL
+                ORDER BY f.frame_index, c.created_at LIMIT %s OFFSET %s
+                """,
+                (source_id, limit, offset),
+            )
+        except Exception as exc:
+            if "deletion_ledger" not in str(exc):
+                raise
+            cur.execute(
+                """
+                SELECT count(*) FROM face_media.face_crops c
+                JOIN face_media.face_detections d ON d.id = c.detection_id
+                JOIN face_media.frames f ON f.id = d.frame_id
+                WHERE f.source_id = %s
+                """,
+                (source_id,),
+            )
+            total = int(cur.fetchone()[0])
+            cur.execute(
+                """
+                SELECT c.id, a.storage_key, c.method,
+                       d.x1, d.y1, d.x2, d.y2, d.confidence,
+                       f.frame_index, f.offset_ms, f.captured_at, f.id,
+                       fa.storage_key
+                FROM face_media.face_crops c
+                JOIN face_media.assets a ON a.id = c.asset_id
+                JOIN face_media.face_detections d ON d.id = c.detection_id
+                JOIN face_media.frames f ON f.id = d.frame_id
+                LEFT JOIN face_media.assets fa ON fa.id = f.asset_id
+                WHERE f.source_id = %s
+                ORDER BY f.frame_index, c.created_at LIMIT %s OFFSET %s
+                """,
+                (source_id, limit, offset),
+            )
         items = [
             {
                 "crop_id": r[0], "crop_key": r[1], "method": r[2],
@@ -397,6 +461,9 @@ def list_source_crops(
                 "offset_ms": int(r[9]),
                 "captured_at": str(r[10]) if r[10] else None,
                 "frame_id": r[11],
+                # P0 viewer: frame file chỉ tồn tại ở luồng full.
+                "frame_available": r[12] is not None,
+                "frame_key": r[12],
             }
             for r in cur.fetchall()
         ]
