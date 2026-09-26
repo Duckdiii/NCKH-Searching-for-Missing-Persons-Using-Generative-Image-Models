@@ -85,3 +85,5 @@ desktop.ini
 SKY_NET/
 docs/drive_output/
 configs/config.json
+docs/*.docx
+docs/modelAI_opencode.txt
