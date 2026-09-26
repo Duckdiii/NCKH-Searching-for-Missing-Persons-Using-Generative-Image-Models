@@ -126,7 +126,7 @@ def main() -> int:
     ap.add_argument("--cosine-col", default=None, help="Cột cosine tính sẵn")
     ap.add_argument("--synthetic", action="store_true", help="Dữ liệu giả smoke test")
     ap.add_argument("--out", default="outputs/cal", help="Thư mục ghi kết quả")
-    ap.add_argument("--grid", default="0.30,0.85,0.025",
+    ap.add_argument("--grid", default="0.05,0.85,0.01",
                     help="start,stop,step lưới accept_threshold")
     ap.add_argument("--target-far", type=float, default=0.01,
                     help="FAR mục tiêu để đề xuất ngưỡng")
@@ -152,6 +152,9 @@ def main() -> int:
     best = min(feas, key=lambda r: (r["FRR"], -r["acc"])) if feas else max(
         cal_rows, key=lambda r: r["acc"])
     test_perf = evaluate(tst, best["accept"])
+    if best["accept"] <= grid[0] + 1e-9 or best["accept"] >= grid[-1] - 1e-9:
+        print(f"[cal] CẢNH BÁO: ngưỡng đề xuất {best['accept']} nằm ở mép lưới "
+              f"[{grid[0]:g}, {grid[-1]:g}] — mở rộng --grid rồi chạy lại.")
     print(f"[cal] đề xuất accept={best['accept']} "
           f"(cal FAR={best['FAR']} FRR={best['FRR']} acc={best['acc']})")
     print(f"[cal] trên TEST: FAR={test_perf['FAR']} FRR={test_perf['FRR']} "
