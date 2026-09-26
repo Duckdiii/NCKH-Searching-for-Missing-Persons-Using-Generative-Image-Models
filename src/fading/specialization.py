@@ -10,6 +10,7 @@ chia sẻ 1 timestep. Output là checkpoint UNet đã specialize, dùng làm đ�
 Tham khảo: https://github.com/MunchkinChen/FADING (specialize.py)
 """
 
+from src.utils.cancellation import checkpoint
 import os
 import random
 from typing import List, Tuple
@@ -174,6 +175,7 @@ class Specializer:
         n = len(dataset)
 
         for step in range(self.train_steps):
+            checkpoint()
             idxs = [random.randrange(n) for _ in range(self.batch_size)]
             images, p_alphas, p_neutrals = [], [], []
             for idx in idxs:

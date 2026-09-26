@@ -18,6 +18,7 @@ import {
 import { exportRankingToCSV, exportReportPrint } from '../utils/exportReport';
 import { ImageWithSkeleton } from './ImageWithSkeleton';
 import { CountUpNumber } from './CountUpNumber';
+import { VideoVerify } from './VideoVerify';
 
 interface LightboxState {
   url: string;
@@ -75,6 +76,26 @@ export const ResultsGallery: React.FC = () => {
   const ages = Object.keys(edited_images).map((a) => parseInt(a)).sort((a, b) => a - b);
   const matchedAge = best_age ?? (ages.length > 0 ? ages[Math.floor(ages.length / 2)] : 50);
   const bestEditedUrl = resolveUrl(edited_images[matchedAge]) || resolveUrl(Object.values(edited_images)[0]) || '';
+
+  // T06: nhóm biến thể theo tuổi (nhiều variant cùng tuổi không ghi đè nhau).
+  // Fallback về edited_images khi backend cũ chưa trả variants.
+  const ageGroups: { age: number; images: { url: string; variantIndex: number; id?: string }[] }[] =
+    jobResult.variants && jobResult.variants.length > 0
+      ? Object.values(
+          jobResult.variants.reduce((acc: Record<number, { age: number; images: { url: string; variantIndex: number; id?: string }[] }>, v) => {
+            (acc[v.target_age] ??= { age: v.target_age, images: [] }).images.push({
+              url: v.image_url,
+              variantIndex: v.variant_index,
+              id: v.id,
+            });
+            return acc;
+          }, {})
+        ).sort((a, b) => a.age - b.age)
+      : ages.map((age) => ({
+          age,
+          images: [{ url: edited_images[age], variantIndex: 0 }],
+        }));
+  const totalTiles = ageGroups.reduce((n, g) => n + g.images.length, 0);
 
   // 3. Ảnh đối soát trong Gallery
   const galleryMatchUrl = resolveUrl(matched_gallery_image) ||
@@ -289,27 +310,30 @@ export const ResultsGallery: React.FC = () => {
 
             <div
               className={`grid gap-3 ${
-                Object.keys(edited_images).length === 1
+                totalTiles === 1
                   ? 'grid-cols-1 max-w-xs mx-auto'
-                  : Object.keys(edited_images).length === 2
+                  : totalTiles === 2
                   ? 'grid-cols-2 max-w-md mx-auto sm:max-w-none'
-                  : Object.keys(edited_images).length === 3
+                  : ageGroups.length === 3 && totalTiles === 3
                   ? 'grid-cols-1 sm:grid-cols-3'
                   : 'grid-cols-2 sm:grid-cols-4'
               }`}
             >
-              {Object.entries(edited_images).map(([ageStr, relPath]) => {
-                const ageNum = parseInt(ageStr);
-                const isBest = ageNum === matchedAge;
-                const milestoneScore = age_scores?.[ageNum] ?? top_score;
+              {ageGroups.map((group) => {
+                const ageStr = String(group.age);
+                const isBest = group.age === matchedAge;
+                const milestoneScore = age_scores?.[group.age] ?? top_score;
                 const badge = getIdScoreBadge(milestoneScore);
-                return (
+                return group.images.map((img, vi) => {
+                  const key = img.id ?? `${ageStr}-v${img.variantIndex}`;
+                  const label = group.images.length > 1 ? `${ageStr}t • v${img.variantIndex + 1}` : `${ageStr}t`;
+                  return (
                   <div
-                    key={ageStr}
+                    key={key}
                     onClick={() =>
                       setLightboxImg({
-                        url: resolveUrl(relPath),
-                        title: `Khuôn mặt dự đoán mốc ${ageStr} tuổi`,
+                        url: resolveUrl(img.url),
+                        title: `Khuôn mặt dự đoán mốc ${ageStr} tuổi${group.images.length > 1 ? ` (biến thể ${img.variantIndex + 1})` : ''}`,
                         subtitle: isBest
                           ? 'Mốc tuổi có độ tương đồng cao nhất'
                           : 'Sinh bởi mạng khuếch tán Dual-Attention',
@@ -323,7 +347,7 @@ export const ResultsGallery: React.FC = () => {
                   >
                     <div className="relative aspect-square overflow-hidden bg-gray-100">
                       <ImageWithSkeleton
-                        src={resolveUrl(relPath)}
+                        src={resolveUrl(img.url)}
                         alt={`${ageStr} tuổi`}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                         fallbackText={`${ageStr} tuổi`}
@@ -336,7 +360,7 @@ export const ResultsGallery: React.FC = () => {
                             : 'bg-white/95 text-[#111827] border border-[#E5E7EB]'
                         }`}
                       >
-                        {ageStr}t • {(milestoneScore * 100).toFixed(0)}%
+                        {label} • {(milestoneScore * 100).toFixed(0)}%
                       </div>
 
                       <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white pointer-events-none">
@@ -349,14 +373,15 @@ export const ResultsGallery: React.FC = () => {
                           isBest ? 'text-[#E8804A]' : 'text-[#111827]'
                         }`}
                       >
-                        {ageStr} tuổi {isBest && '★'}
+                        {ageStr} tuổi{group.images.length > 1 ? ` • v${img.variantIndex + 1}` : ''} {isBest && vi === 0 && '★'}
                       </span>
                     </div>
                   </div>
-                );
+                  );
+                });
               })}
             </div>
-            {Object.keys(edited_images).length === 1 && (
+            {ageGroups.length === 1 && totalTiles === 1 && (
               <p className="text-xs text-[#6B7280] text-center italic mt-2">
                 Ảnh chụp cách đây chưa tới 10 năm — chỉ sinh 1 mốc tuổi hiện tại
               </p>
@@ -538,6 +563,9 @@ export const ResultsGallery: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* 4. Đối soát bổ sung bằng video (sau kết quả FADING) */}
+      <VideoVerify jobId={jobResult.job_id} />
 
       {/* 5. Lightbox Modal Phóng To Ảnh */}
       {lightboxImg && (

@@ -5,6 +5,7 @@ Trích xuất vector embedding 512-chiều (đã chuẩn hoá L2) cho từng khu
 insightface.app.FaceAnalysis(buffalo_l). Dùng làm đầu vào cho Module 5 (FAISS search).
 """
 
+from src.utils.cancellation import checkpoint
 import glob
 import os
 from typing import List, Tuple
@@ -121,6 +122,7 @@ class FaceEmbedder:
         failed_files: List[str] = []
 
         for image_path in image_paths:
+            checkpoint()
             try:
                 embedding = self.embed(image_path)
             except ValueError as e:
