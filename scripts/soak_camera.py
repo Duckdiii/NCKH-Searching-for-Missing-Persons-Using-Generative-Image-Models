@@ -64,8 +64,15 @@ def cmd_track(args) -> int:
     t = 0.0
     sim_drops = 0
     total_obs = 0
+    # Mốc RSS sau warmup (10% frame đầu, khi track/cache đã đầy) để so với cuối.
+    warmup = max(1, total_frames // 10)
+    rss_start = None
     for f in range(total_frames):
         t += dt
+        if f == warmup:
+            import gc
+            gc.collect()
+            rss_start = _rss_mb()
         for ci, tr in enumerate(trackers):
             frame = np.full((480, 640, 3), 128, dtype=np.uint8)
             faces = []
@@ -99,10 +106,9 @@ def cmd_track(args) -> int:
                 for trk in tr.pop_closed_ready(t):
                     assert len(trk.candidates) <= 3, "vượt 3 crop/tracklet!"
             del frame
-    rss0 = _rss_mb()
-    # Ép GC rồi đo lại để đánh giá ổn định RAM.
     import gc
     gc.collect()
+    rss0 = rss_start
     rss1 = _rss_mb()
     closed_total = sum(tr._created_today for tr in trackers)
     open_total = sum(len(tr.open_tracks()) for tr in trackers)
@@ -110,20 +116,21 @@ def cmd_track(args) -> int:
     sim_hours = args.minutes / 60
     proj_tracklets_day = closed_total / max(sim_hours, 1e-6) * 24
     proj_crops_day = proj_tracklets_day * 2  # trung bình tính tải K=2
-    proj_gb_day = proj_crops_day * 30 * 1024 / 1e9
+    proj_gb_day = proj_crops_day * args.crop_kib * 1024 / 1024**3
     print(f"[soak] cameras={args.cameras} frames={total_frames} obs={total_obs} "
           f"drops={sim_drops}")
     print(f"[soak] tracklets_created={closed_total} open={open_total}")
-    print(f"[soak] RSS: {rss0}MB -> {rss1}MB (sau GC)")
+    print(f"[soak] RSS sau warmup -> cuối (sau GC): {rss0}MB -> {rss1}MB")
     print(f"[soak] chiếu 24h: {proj_tracklets_day:.0f} tracklets/ngày, "
           f"{proj_crops_day:.0f} crops/ngày ≈ {proj_gb_day:.2f} GiB ảnh/ngày "
-          f"(giả định 30KiB/crop — thay bằng p95 từ bench_crop_jpeg).")
+          f"({args.crop_kib:g}KiB/crop — nên lấy p95 từ bench_crop_jpeg).")
     ok = True
     if rss0 and rss1 and rss1 > rss0 * 1.15:
         print("[soak] CẢNH BÁO: RSS tăng >15% sau soak — kiểm tra rò rỉ (track/cache).")
         ok = False
     if proj_tracklets_day > args.cameras * 2000:
-        print("[soak] CẢNH BÁO: vượt quota 2000 tracklets/camera/ngày.")
+        print("[soak] CẢNH BÁO: vượt quota 2000 tracklets/camera/ngày "
+              "(tải mô phỏng — so với lưu lượng người thật của camera).")
         ok = False
     print("[soak] " + ("ĐẠT" if ok else "CẦN XEM LẠI"))
     return 0 if ok else 1
@@ -168,20 +175,19 @@ def main() -> int:
     tr.add_argument("--fps", type=float, default=2.0)
     tr.add_argument("--persons-per-camera", type=int, default=3)
     tr.add_argument("--seed", type=int, default=7)
+    tr.add_argument("--crop-kib", type=float, default=30.0,
+                    help="KiB/crop để chiếu dung lượng (p95 từ bench_crop_jpeg)")
     pl = sub.add_parser("poll", help="Bám /api/ops/metrics backend đang chạy")
     pl.add_argument("--url", default="http://127.0.0.1:8000/api/ops/metrics")
     pl.add_argument("--interval", type=float, default=10)
     pl.add_argument("--duration", type=float, default=600)
-    args = ap.parse_args()
+    argv = sys.argv[1:]
+    # track là mặc định: `soak_camera.py --cameras 8` phải chạy như docstring.
+    if not argv or argv[0] not in ("track", "poll", "-h", "--help"):
+        argv = ["track", *argv]
+    args = ap.parse_args(argv)
     if args.cmd == "poll":
         return cmd_poll(args)
-    if args.cmd is None:
-        args.cameras = getattr(args, "cameras", 8) or 8
-        args.minutes = getattr(args, "minutes", 5) or 5
-        args.fps = getattr(args, "fps", 2.0) or 2.0
-        args.persons_per_camera = getattr(args, "persons_per_camera", 3) or 3
-        args.seed = getattr(args, "seed", 7)
-        return cmd_track(args)
     return cmd_track(args)
 
 
