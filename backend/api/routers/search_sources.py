@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 import os
 import tempfile
 import threading
@@ -101,7 +102,7 @@ async def ingest_images(files: list[UploadFile] = File(...)):
             items.append(ImageIngestItem(
                 filename=upload.filename or "?", status="no_face",
                 source_id=result["source_id"], faces_found=0,
-                conditions=result.get("conditions", {}),
+                conditions=dict(Counter(result.get("conditions", {}))),
                 error="Không phát hiện khuôn mặt nào trong ảnh."))
         else:
             items.append(ImageIngestItem(
@@ -109,7 +110,7 @@ async def ingest_images(files: list[UploadFile] = File(...)):
                 source_id=result["source_id"],
                 faces_found=result["faces_found"],
                 crops=[IngestedCrop(**c) for c in result["crops"]],
-                conditions=result.get("conditions", {})))
+                conditions=dict(Counter(result.get("conditions", {})))))
     return ImageIngestResponse(items=items)
 
 

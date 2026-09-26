@@ -264,11 +264,14 @@ def run_pipeline_job(
                 set_error(job_id, CANCELLED_MESSAGE, db_job_id=db_job_id)
                 return
             update_stage(job_id, "search")
-            search_res = pipeline.run_embedding_and_search(
-                job_config,
-                edited_images,
-                return_age_scores=True
-            )
+            if db_job_id:
+                search_res = ({}, False, "", 0.0, {})
+            else:
+                search_res = pipeline.run_embedding_and_search(
+                    job_config,
+                    edited_images,
+                    return_age_scores=True
+                )
             checkpoint()
             if len(search_res) == 5:
                 final_scores, accepted, top_identity, top_score, age_scores = search_res
@@ -319,15 +322,22 @@ def run_pipeline_job(
                     edited_images=edited_images,
                     parameters=pipeline_params,
                 )
-                saved = len(variants)
-                total = len(edited_images or {})
-                if total > 0 and saved == 0:
-                    update_job_record(
-                        db_job_id, "error",
-                        "Pipeline xong nhưng không lưu được ảnh nào vào face_media.",
-                    )
-                else:
-                    update_job_record(db_job_id, "done")
+                if not edited_images or len(variants) != len(edited_images):
+                    raise RuntimeError("Không lưu đủ ảnh tạo sinh; job không được đánh dấu done.")
+                from backend.api.job_search import search_generated_job
+                persisted_search = search_generated_job(
+                    db_job_id, variants, edited_images,
+                    top_k=job_config.get("search", {}).get("top_k", 5),
+                    threshold=job_config.get("search", {}).get("rejection_threshold", 0.6))
+                final_scores = persisted_search["final_scores"]
+                accepted = persisted_search["accepted"]
+                top_identity = persisted_search["top_identity"]
+                top_score = persisted_search["top_score"]
+                best_age = persisted_search["best_age"]
+                age_scores = persisted_search["age_scores"]
+                matched_gallery_image = persisted_search["matched_gallery_image"]
+                pipeline_params["search_run_id"] = persisted_search["search_run_id"]
+                update_job_record(db_job_id, "done")
             checkpoint()
             set_done(
                 job_id,

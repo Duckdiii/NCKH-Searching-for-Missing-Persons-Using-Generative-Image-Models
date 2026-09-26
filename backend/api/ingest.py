@@ -119,7 +119,7 @@ def sample_video_frames(
         meta = {
             "fps": float(fps),
             "frames_total": total or None,
-            "duration_sec": round(frames[-1]["timestamp_sec"], 3) if frames else 0.0,
+            "duration_sec": round(total / fps, 3) if total > 0 else round(frame_idx / fps, 3),
             "frames_processed": len(frames),
             "truncated": bool(truncated),
         }

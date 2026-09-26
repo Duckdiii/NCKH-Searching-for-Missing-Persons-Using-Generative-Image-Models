@@ -79,6 +79,8 @@ def run_pipeline(session_id: str, req: RunPipelineRequest = RunPipelineRequest()
                 initial_age=session.initial_age,
                 parameters={"photo_year": session.photo_year},
             )
+            if db_job_id is None:
+                raise HTTPException(503, "Không tạo được job trong database; chưa chạy pipeline.")
             job_state.db_job_id = db_job_id
         else:
             db_job_id = None

@@ -151,3 +151,84 @@ nhân, gồm cả vòng lặp đánh giá định lượng trên toàn bộ FG-N
 - **`ValueError` từ `Editor.edit()` báo lệch `num_inference_steps`** — Module 2 và Module 3
   bắt buộc dùng chung `inversion.num_inference_steps`, không được cấu hình riêng cho Module 3
   (xem comment trong `config.yaml`).
+
+## Lưu trữ face_media (Supabase) — vận hành
+
+Hai luồng: REFERENCE (ảnh gốc → crop → ảnh tạo sinh) và SEARCH (ảnh/video/camera →
+crop quan sát). Chi tiết schema: `docs/face-media-database.md`; backlog: 
+`docs/face-media-implementation-tasks.md`.
+
+### 1. Cấu hình
+
+```bash
+copy .env.example .env   # rồi điền giá trị, KHÔNG commit .env
+```
+
+| Biến | Mô tả |
+|---|---|
+| `DATABASE_URL` | Postgres pooler Supabase (`postgresql://...`, bắt buộc SSL; runner tự ép `sslmode=require`, `connect_timeout=10`, bỏ cờ `pgbouncer`) |
+| `DATABASE_URL_TEST` | Database test RIÊNG (runner/test từ chối khi trùng production) |
+| `DATABASE_POOL_SIZE` | Pool FastAPI (mặc định 10) |
+| `STORAGE_BACKEND` | `local` (thư mục `MEDIA_ROOT`, mặc định `outputs/media`) hoặc `supabase` (bucket private tạo riêng qua infra) |
+| `CAMERA_<TEN>_URL` | URL/secret từng camera (DB chỉ giữ tên biến, không lưu URL) |
+| `CAMERA_SAVE_SESSION_VIDEO` | `false` mặc định (không lưu video toàn phiên) |
+| `FACE_MEDIA_API_KEY` | Để trống = local một người; đặt giá trị để yêu cầu header `X-API-Key` trên mọi `/api/*` (trừ `/api/health`) |
+
+### 2. Migration (không chạy lại 001 trên DB hiện tại)
+
+```bash
+python database/migrate.py status     # xem trạng thái + phát hiện drift checksum
+python database/migrate.py baseline   # 1 lần duy nhất: xác minh 9 bảng/2 view/12 FK rồi ghi nhận 001
+python database/migrate.py migrate    # áp dụng 002, 003, 004, ... (mỗi migration 1 transaction, chạy 1 lần)
+```
+
+### 3. Chạy backend và worker
+
+```bash
+python -m backend.api.main            # FastAPI (lifespan mở/đóng pool)
+```
+
+- Nạp video/camera chạy ở thread nền + hàng `face_media.ingestion_runs` (tiến độ, hủy, retry):
+  `POST /api/search-sources/videos` → `GET /api/ingestion-runs/{id}` →
+  `POST /api/ingestion-runs/{id}/cancel|retry`.
+- GPU mutex: một pipeline diffusion tại một thời điểm (409 khi bận).
+- Job đang `running` khi process chết được đánh `error/interrupted` lúc startup —
+  không tự chạy lại (xem T12).
+
+### 4. Gallery FAISS và đối chiếu
+
+```bash
+# Sau khi nạp crop search: bù embedding thiếu rồi rebuild snapshot (chỉ crop search)
+POST /api/gallery/rebuild
+POST /api/gallery/query   # {crop_id | generated_image_id, scope_source_id?, top_k, threshold}
+```
+
+- Snapshot version theo bộ ba (model, version, preprocessing), công bố atomically.
+- Mọi lượt verify video (`POST /api/jobs/{id}/video-verify` với `file` hoặc
+  `source_id` đã nạp) đều lưu `search_runs`/`search_results`; `accepted` theo
+  ngưỡng tách biệt xác nhận con người (`POST /api/search-runs/confirm` —
+  similarity cao không phải danh tính đã xác nhận).
+- Video dài hơn `max_frames` (mặc định 90 frame @3fps) bị cắt phạm vi: xem cờ
+  `truncated` trong response, không coi là đã xử lý toàn bộ.
+
+### 5. Lịch sử, backup/restore, rollback
+
+- Lịch sử phân trang: `GET /api/search-sources`, `/api/search-sources/{id}/crops`,
+  `/api/generation-jobs`, `/api/search-runs`, `GET /api/sessions/{id}` (dựng lại
+  sau restart), `GET /api/generation-jobs/{id}`.
+- Backup gồm cả metadata Postgres (`pg_dump`) và thư mục `MEDIA_ROOT`; kiểm thử
+  restore trên môi trường test rồi mới chạy production.
+- Rollback ứng dụng: checkout tag/commit cũ + `migrate` chỉ tiến tới (không có
+  down-migration; schema mới tương thích đọc cũ). Không sửa file migration đã apply.
+
+### 6. Chuyển dữ liệu cũ (T14)
+
+```bash
+python scripts/import_legacy_outputs.py --dry-run            # báo cáo mapping + gap, không ghi/xóa
+python scripts/import_legacy_outputs.py --apply --reroot     # import chuỗi khôi phục được
+```
+
+Chuỗi cũ thiếu ảnh gốc (file tạm đã xóa) nên chỉ import ở chế độ `--reroot`
+(crop cũ thành nguồn reference mới, provenance ghi rõ trong parameters);
+`--apply` thiếu `--reroot` bị từ chối. Idempotent qua `storage_key` +
+checkpoint `outputs/.import_checkpoint.json`; video cũ chỉ báo cáo, không import.

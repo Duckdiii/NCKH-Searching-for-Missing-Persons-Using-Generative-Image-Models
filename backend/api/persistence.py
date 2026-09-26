@@ -251,62 +251,48 @@ def persist_generated_outputs(
     Mỗi (target_age, variant_index) một bản ghi — nhiều biến thể cùng tuổi
     không ghi đè nhau. Trả danh sách variant đã lưu (có thể rỗng).
     """
-    saved: list[dict] = []
+    import uuid
+    from backend.api import repositories as repo
+    from backend.api.storage import (get_storage, build_key, sniff_mime,
+        sha256_bytes, check_image_decodable, PREFIX_REFERENCE_GENERATED)
+    storage = get_storage()
+    staged = []
+    commit_started = False
     try:
-        from backend.api import repositories as repo
-        from backend.api.storage import (
-            PREFIX_REFERENCE_GENERATED,
-            build_key,
-            get_storage,
-            sha256_bytes,
-            sniff_mime,
-        )
-
-        storage = get_storage()
+        for age_key, path in (edited_images or {}).items():
+            age = int(age_key)
+            with open(path, "rb") as handle:
+                data = handle.read()
+            width, height = check_image_decodable(data)
+            mime = sniff_mime(data, "image/png")
+            asset_id, generated_id = str(uuid.uuid4()), str(uuid.uuid4())
+            key = build_key(PREFIX_REFERENCE_GENERATED, asset_id, mime)
+            storage.put_bytes(data, key, mime_type=mime)
+            item = dict(id=generated_id, asset_id=asset_id, key=key, target_age=age,
+                mime=mime, digest=sha256_bytes(data), size=len(data), width=width, height=height)
+            staged.append(item)
+            item["url"] = storage.get_access_url(key)
         with get_pool_conn() as conn:
-            for age_key, fpath in (edited_images or {}).items():
-                try:
-                    age = int(age_key)
-                except (TypeError, ValueError):
-                    continue
-                try:
-                    with open(fpath, "rb") as handle:
-                        data = handle.read()
-                except OSError:
-                    continue
-                mime = sniff_mime(data, "image/png")
-                generated_id = str(uuid.uuid4())
-                asset_id = str(uuid.uuid4())
-                key = build_key(PREFIX_REFERENCE_GENERATED, asset_id, mime)
-                storage.put_bytes(data, key, mime_type=mime)
-                try:
-                    repo.create_asset(
-                        conn, storage_key=key, media_type="image",
-                        mime_type=mime, sha256=sha256_bytes(data),
-                        byte_size=len(data), width=512, height=512,
-                        role="generated", asset_id=asset_id,
-                    )
-                    repo.create_generated_image(
-                        conn, job_id=job_id, asset_id=asset_id,
-                        target_age=age, variant_index=0,
-                        parameters=parameters or {},
-                        generated_id=generated_id,
-                    )
-                except Exception:
-                    storage.delete_quiet(key)
-                    raise
-                saved.append(
-                    {
-                        "id": generated_id,
-                        "target_age": age,
-                        "variant_index": 0,
-                        "seed": None,
-                        "image_url": storage.get_access_url(key),
-                    }
-                )
+            for item in staged:
+                repo.create_asset(conn, storage_key=item["key"], media_type="image",
+                    mime_type=item["mime"], sha256=item["digest"], byte_size=item["size"],
+                    width=item["width"], height=item["height"], role="generated", asset_id=item["asset_id"])
+                repo.create_generated_image(conn, job_id=job_id, asset_id=item["asset_id"],
+                    target_age=item["target_age"], variant_index=0,
+                    parameters=parameters or {}, generated_id=item["id"])
+            commit_started = True
+        return [dict(id=i["id"], target_age=i["target_age"], variant_index=0,
+                     seed=None, image_url=i["url"]) for i in staged]
     except Exception as exc:
-        logger.warning("persist_generated_outputs thiếu sót: %s: %s", type(exc).__name__, exc)
-    return saved
+        if commit_started:
+            # A lost COMMIT response is not proof of rollback. Never delete files
+            # potentially referenced by committed rows; leave them for reconciliation.
+            logger.error("Generated output commit outcome uncertain; retaining %s staged files", len(staged))
+            return []
+        for item in staged:
+            storage.delete_quiet(item["key"])
+        logger.warning("persist_generated_outputs rollback: %s", type(exc).__name__)
+        return []
 
 
 def get_generation_job_detail(job_id: str) -> Optional[dict]:

@@ -200,3 +200,39 @@ def test_ingest_image_without_db_returns_none():
         embedder=_mock_embedder([])) is None
     assert ingest.persist_video_source(
         video_bytes=b"xx", ext=".mp4", mime_type="video/mp4") is None
+
+
+def test_image_ingest_conditions_list_serializes_for_faces_and_no_face():
+    for count in (0, 1):
+        payload = {'source_id': 'source-test', 'faces_found': count,
+                   'crops': [], 'conditions': ['rain', 'glare']}
+        with patch('backend.api.routers.search_sources.db_ping', return_value=True), \
+             patch('backend.api.routers.search_sources.get_ingest_embedder'), \
+             patch('backend.api.routers.search_sources.ingest_image_bytes', return_value=payload):
+            response = client.post('/api/search-sources/images',
+                                   files={'files': ('sample.png', b'image', 'image/png')})
+        assert response.status_code == 200
+        item = response.json()['items'][0]
+        assert item['status'] == ('done' if count else 'no_face')
+        assert item['conditions'] == {'rain': 1, 'glare': 1}
+
+
+def test_reference_crop_embedding_is_allowed_for_query(tmp_path):
+    from contextlib import contextmanager
+    from backend.api.storage import LocalMediaStorage
+    storage = LocalMediaStorage(tmp_path)
+    storage.put_bytes(b'image fixture', 'reference/crops/sample.jpg', mime_type='image/jpeg')
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value.fetchone.side_effect = [
+        ('reference/crops/sample.jpg', 'reference'), None]
+    pool = MagicMock()
+    pool.connection.return_value.__enter__.return_value = conn
+    with patch('backend.api.database.get_pool', return_value=pool), \
+         patch('backend.api.persistence.db_ping', return_value=True), \
+         patch('backend.api.storage.get_storage', return_value=storage), \
+         patch('backend.api.dependencies.get_embedder') as model, \
+         patch('backend.api.repositories.create_embedding', return_value='reference-embedding') as create:
+        model.return_value.embed.return_value = np.array([3.0, 4.0])
+        assert gallery_service.ensure_crop_embedding('reference-crop') == 'reference-embedding'
+    assert create.call_args.kwargs['crop_id'] == 'reference-crop'
+    assert np.allclose(create.call_args.kwargs['values'], [0.6, 0.8])

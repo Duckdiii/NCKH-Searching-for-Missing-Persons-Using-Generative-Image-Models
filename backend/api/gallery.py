@@ -52,7 +52,7 @@ def snapshot_key(model_name: str, model_version: str, preprocessing_version: str
 
 
 def ensure_crop_embedding(crop_id: str) -> Optional[str]:
-    """Tính + lưu embedding cho 1 search crop (bù cho crop nạp trước T10).
+    """Tính + lưu embedding cho crop tham chiếu hoặc crop quan sát.
 
     Trả embedding id, hoặc None khi DB/storage/model không sẵn sàng.
     """
@@ -80,8 +80,8 @@ def ensure_crop_embedding(crop_id: str) -> Optional[str]:
                 if row is None:
                     return None
                 storage_key, purpose = row
-                if purpose != "search":
-                    logger.warning("từ chối embed crop không phải search: %s", crop_id)
+                if purpose not in ("reference", "search"):
+                    logger.warning("từ chối embed crop có purpose không hợp lệ: %s", crop_id)
                     return None
                 cur.execute(
                     """

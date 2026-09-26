@@ -64,7 +64,7 @@ def _query_vector_from_crop(crop_id: str) -> np.ndarray:
                 JOIN face_media.face_crops c ON c.id = e.crop_id
                 WHERE e.crop_id = %s AND e.model_name = %s
                   AND e.model_version = %s AND e.preprocessing_version = %s
-                  AND c.purpose = 'search'
+                  AND c.purpose IN ('reference', 'search')
                 """,
                 (crop_id, model_name, model_version, preproc))
             row = cur.fetchone()
@@ -73,7 +73,7 @@ def _query_vector_from_crop(crop_id: str) -> np.ndarray:
         if embedding_id is None:
             raise HTTPException(
                 status_code=400,
-                detail="Không có embedding cho crop (crop không phải search "
+                detail="Không có embedding cho crop (crop không tồn tại "
                 "hoặc model/storage không sẵn sàng).")
         with get_pool().connection() as conn:
             with conn.cursor() as cur:
@@ -101,6 +101,14 @@ def _query_vector_from_generated(generated_image_id: str) -> tuple[np.ndarray, d
     if row is None:
         raise HTTPException(status_code=404, detail="Ảnh tạo sinh không tồn tại.")
     storage_key, job_id, target_age = row
+    model, version, preproc = current_embed_triple()
+    with get_pool().connection() as conn:
+        cached = conn.execute(
+            'SELECT "values" FROM face_media.face_embeddings WHERE generated_image_id=%s '
+            'AND model_name=%s AND model_version=%s AND preprocessing_version=%s',
+            (generated_image_id, model, version, preproc)).fetchone()
+    if cached is not None:
+        return np.asarray(cached[0], dtype=np.float64), {"job_id": job_id, "target_age": target_age}
     try:
         with get_storage().open(storage_key) as handle:
             data = handle.read()

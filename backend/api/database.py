@@ -15,16 +15,25 @@ from __future__ import annotations
 import os
 import queue
 import threading
+import time
 from contextlib import contextmanager
 from typing import Iterator, Optional
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-try:  # python-dotenv là dependency khai báo trong requirements.txt
-    from dotenv import load_dotenv
+def _load_environment() -> None:
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    # Process environment wins, followed by root .env, then legacy src/.env.
+    project_root = Path(__file__).resolve().parents[2]
+    load_dotenv(project_root / ".env", override=False)
+    load_dotenv(project_root / "src" / ".env", override=False)
 
-    load_dotenv()
-except Exception:  # thiếu package / thiếu file .env đều không được crash import
-    pass
+
+_load_environment()
+
 
 # Tham số libpq được giữ lại khi chuẩn hóa URL. Mọi tham số khác
 # (đặc biệt các cờ pgbouncer/JDBC) bị loại để tránh lỗi
@@ -174,24 +183,52 @@ class DatabasePool:
     def _new_connection(self):  # type: ignore[no-untyped-def]
         import psycopg
 
-        return psycopg.connect(self._dsn, autocommit=False)
+        from psycopg.types.string import TextLoader
+
+        conn = psycopg.connect(
+            self._dsn, autocommit=False, prepare_threshold=None,
+            connect_timeout=10, keepalives=1, keepalives_idle=15,
+            keepalives_interval=5, keepalives_count=3,
+            options="-c statement_timeout=30000 -c lock_timeout=10000 "
+                    "-c idle_in_transaction_session_timeout=60000",
+        )
+        # Repository/API identifiers are strings, including snapshot mapping keys.
+        # psycopg defaults to uuid.UUID, which Pydantic string fields reject.
+        conn.adapters.register_loader("uuid", TextLoader)
+        return conn
 
     def getconn(self, timeout: float = 30.0):
-        with self._guard:
-            if self._closed:
-                raise DatabaseConfigError("Connection pool đã đóng.")
-            if self._created < self._max_size:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._guard:
+                if self._closed:
+                    raise DatabaseConfigError("Connection pool đã đóng.")
                 try:
-                    return self._new_connection_and_count()
-                except Exception:
-                    raise
-        try:
-            return self._available.get(timeout=timeout)
-        except queue.Empty as exc:
-            raise TimeoutError(
-                "Hết connection trong pool (tăng DATABASE_POOL_SIZE hoặc "
-                "kiểm tra connection leak)."
-            ) from exc
+                    conn = self._available.get_nowait()
+                except queue.Empty:
+                    if self._created < self._max_size:
+                        return self._new_connection_and_count()
+                    conn = None
+            if conn is None:
+                try:
+                    conn = self._available.get(timeout=min(0.2, max(0.001, deadline-time.monotonic())))
+                except queue.Empty:
+                    continue
+            # Validate on checkout, never replay an application transaction.
+            try:
+                if conn.closed:
+                    raise ConnectionError("Closed pooled connection")
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                conn.rollback()
+                return conn
+            except Exception:
+                try:
+                    conn.close()
+                finally:
+                    with self._guard:
+                        self._created = max(0, self._created - 1)
+        raise TimeoutError("Hết thời gian chờ connection database.")
 
     def _new_connection_and_count(self):  # type: ignore[no-untyped-def]
         conn = self._new_connection()

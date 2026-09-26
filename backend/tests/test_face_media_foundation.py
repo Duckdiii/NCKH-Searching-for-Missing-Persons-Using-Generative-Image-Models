@@ -64,8 +64,8 @@ def test_normalize_drops_pgbouncer_params_and_forces_ssl():
     assert "sslmode=require" in normalize_database_url("postgresql://u:p@h/db")
 
 
-def test_pool_hands_out_independent_connections():
-    DatabasePool._new_connection = lambda self: _FakeConn()  # noqa: E731
+def test_pool_hands_out_independent_connections(monkeypatch):
+    monkeypatch.setattr(DatabasePool, "_new_connection", lambda self: _FakeConn())
     pool = DatabasePool("postgresql://u@h/db", max_size=2)
     c1, c2 = pool.getconn(), pool.getconn()
     assert c1 is not c2

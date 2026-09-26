@@ -3,10 +3,9 @@
 - ``storage_key`` luôn tương đối (``reference/crops/<uuid>.png``...), không
   phụ thuộc đường dẫn máy, không chứa ``..`` hay đường dẫn tuyệt đối.
 - Mặc định ``STORAGE_BACKEND=local`` ghi dưới ``MEDIA_ROOT`` (``outputs/media``).
-  Supabase DB không đồng nghĩa file đã nằm trên Storage — backend tạo bucket
-  private riêng qua cấu hình triển khai; ``STORAGE_BACKEND=supabase`` hiện báo
-  lỗi rõ cho đến khi infra cung cấp bucket + key (frontend chỉ nhận URL có
-  hạn hoặc qua endpoint có quyền, key dịch vụ không bao giờ ra frontend).
+  STORAGE_BACKEND=supabase dùng bucket private và signed URL có hạn.
+  SUPABASE_SECRET_KEY chỉ được đọc ở backend. File local cũ vẫn đọc được
+  trong giai đoạn chuyển đổi; file mới được ghi theo backend đã chọn.
 - Thứ tự ghi: file thành công trước, metadata DB sau; DB lỗi → caller dọn
   file mồ côi bằng ``delete_quiet`` (có khoảng chờ/retention do caller cấu hình).
 - Upload stream có giới hạn dung lượng, không đọc toàn bộ video lớn rồi mới
@@ -245,40 +244,6 @@ class LocalMediaStorage(MediaStorage):
         path.unlink()
 
 
-class SupabaseMediaStorage(MediaStorage):
-    """Giữ chỗ cho bucket private Supabase (tạo bằng infra riêng, T03).
-
-    Key dịch vụ chỉ ở backend; frontend nhận URL có hạn. Chưa cấu hình xong
-    thì mọi thao tác báo lỗi rõ thay vì ghi nhầm sang local.
-    """
-
-    def __init__(self) -> None:
-        raise NotImplementedError(
-            "STORAGE_BACKEND=supabase chưa được cấu hình: tạo bucket private bằng "
-            "cấu hình triển khai riêng rồi triển khai SupabaseMediaStorage "
-            "(SUPABASE_URL/SUPABASE_SERVICE_KEY/SUPABASE_BUCKET). "
-            "Hiện dùng STORAGE_BACKEND=local."
-        )
-
-    def put_bytes(self, data: bytes, key: str, *, mime_type: str) -> str:
-        raise NotImplementedError
-
-    def put_stream(self, stream, key, *, mime_type, max_bytes=None):  # type: ignore[no-untyped-def]
-        raise NotImplementedError
-
-    def open(self, key: str) -> BinaryIO:
-        raise NotImplementedError
-
-    def get_access_url(self, key: str) -> str:
-        raise NotImplementedError
-
-    def delete(self, key: str) -> None:
-        raise NotImplementedError
-
-    def _exists(self, key: str) -> bool:
-        raise NotImplementedError
-
-
 _STORAGE: Optional[MediaStorage] = None
 
 
@@ -291,6 +256,7 @@ def get_storage() -> MediaStorage:
     if backend == "local":
         _STORAGE = LocalMediaStorage()
     elif backend == "supabase":
+        from backend.api.supabase_storage import SupabaseMediaStorage
         _STORAGE = SupabaseMediaStorage()
     else:
         raise ValueError(
