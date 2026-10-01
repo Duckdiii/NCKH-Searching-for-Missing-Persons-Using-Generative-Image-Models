@@ -1,4 +1,8 @@
 import os
+import re
+from fastapi.responses import JSONResponse
+from backend.api.session_lifecycle import (session_operation, stop_tasks, lifecycle_status, delete_when_idle)
+from src.utils.cancellation import checkpoint
 import tempfile
 import uuid
 import cv2
@@ -17,7 +21,18 @@ from backend.api.schemas import (
     ApplyRestoreRequest,
     UploadResponse,
 )
-from backend.api.session_store import SessionState, get_session, save_session
+from backend.api.session_store import (
+    SessionState,
+    delete_session,
+    get_session,
+    save_session,
+)
+from backend.api.persistence import (
+    persist_crop_revision,
+    persist_reference_upload,
+    restore_session,
+    save_session_record,
+)
 from src.utils.age_estimator import resolve_initial_age
 from src.utils.face_enhancement import preprocess_face_image, apply_white_balance_from_point
 from src.utils.ffhq_align import align_to_ffhq
@@ -63,7 +78,26 @@ async def upload_image(file: UploadFile = File(...)):
         faces=faces,
         file_name=file.filename or "upload.png"
     )
+
+    # T04: lưu ảnh gốc bền vững (asset → source reference/image → frame tĩnh
+    # → detections). Best-effort: DB không sẵn sàng thì giữ luồng RAM cũ.
+    persisted = persist_reference_upload(
+        image_bytes=file_bytes,
+        filename=file.filename or "upload.png",
+        content_type=file.content_type,
+        faces=faces,
+        image_width=int(image_bgr.shape[1]),
+        image_height=int(image_bgr.shape[0]),
+        detector_name="insightface",
+        detector_version=getattr(embedder, "model_name", "buffalo_l"),
+    )
+    if persisted is not None:
+        session_state.source_id = persisted["source_id"]
+        session_state.frame_id = persisted["frame_id"]
+        session_state.detection_ids = persisted["detection_ids"]
     save_session(session_state)
+    # T12: session metadata bền vững (RAM chỉ là cache).
+    save_session_record(session_state)
 
     face_boxes = [
         FaceBox(
@@ -74,10 +108,16 @@ async def upload_image(file: UploadFile = File(...)):
         for i, face in enumerate(faces)
     ]
 
-    return UploadResponse(session_id=session_id, faces=face_boxes)
+    return UploadResponse(
+        session_id=session_id,
+        faces=face_boxes,
+        source_id=session_state.source_id,
+        detection_ids=session_state.detection_ids,
+    )
 
 
 @router.post("/{session_id}/select-face", response_model=SelectFaceResponse)
+@session_operation
 def select_face(session_id: str, req: SelectFaceRequest):
     session = get_session(session_id)
     if not session:
@@ -106,19 +146,58 @@ def select_face(session_id: str, req: SelectFaceRequest):
 
     # Căn chỉnh FFHQ chuẩn
     cropped = align_to_ffhq(preprocessed_bgr, updated_kps, output_size=512)
+    checkpoint()
     os.makedirs("outputs/app_uploads", exist_ok=True)
     cropped_filename = f"{session_id}_crop.png"
     cropped_path = os.path.join("outputs", "app_uploads", cropped_filename)
-    cv2.imwrite(cropped_path, cropped)
+    if not cv2.imwrite(cropped_path, cropped):
+        raise HTTPException(status_code=500, detail="Ghi ảnh crop thất bại.")
 
     session.cropped_path = cropped_path
+    # T05: lưu revision crop mới thay vì chỉ ghi đè file. Mỗi lần chọn lại mặt
+    # tạo một face_crops mới; job chốt input_crop_id lúc chạy nên job cũ giữ
+    # nguyên lineage dù người dùng đổi crop sau đó.
+    if req.selected_idx < len(session.detection_ids):
+        session.chosen_detection_id = session.detection_ids[req.selected_idx]
+    revision = (
+        persist_crop_revision(
+            purpose="reference",
+            detection_id=session.chosen_detection_id,
+            cropped_bgr=cropped,
+            method="restored",
+            preprocessing={
+                "pipeline": "preprocess_face_image+align_to_ffhq",
+                "mode": "auto",
+                "padding_enabled": True,
+                "white_balance_enabled": True,
+                "output_size": 512,
+            },
+            transform_to_source={
+                "bbox_original": [float(v) for v in chosen_face.bbox],
+                "output_size": 512,
+            },
+        )
+        if session.chosen_detection_id
+        else None
+    )
+    if revision is not None:
+        session.current_crop_id = revision["crop_id"]
     save_session(session)
+    save_session_record(
+        session, chosen_face_index=req.selected_idx,
+        chosen_detection_id=session.chosen_detection_id,
+        current_crop_id=session.current_crop_id)
 
     cropped_preview_url = f"/outputs/app_uploads/{cropped_filename}"
-    return SelectFaceResponse(warnings=warnings, cropped_preview_url=cropped_preview_url)
+    return SelectFaceResponse(
+        warnings=warnings,
+        cropped_preview_url=cropped_preview_url,
+        crop_id=session.current_crop_id,
+    )
 
 
 @router.post("/{session_id}/restore-preview", response_model=RestorePreviewResponse)
+@session_operation
 def restore_preview(session_id: str, req: RestorePreviewRequest):
     session = get_session(session_id)
     if not session:
@@ -143,6 +222,7 @@ def restore_preview(session_id: str, req: RestorePreviewRequest):
         fidelity_weight=req.fidelity_weight,
     )
     cropped = align_to_ffhq(preprocessed_bgr, updated_kps, output_size=512)
+    checkpoint()
     os.makedirs("outputs/app_uploads", exist_ok=True)
     preview_filename = f"{session_id}_preview.png"
     preview_path = os.path.join("outputs", "app_uploads", preview_filename)
@@ -153,6 +233,7 @@ def restore_preview(session_id: str, req: RestorePreviewRequest):
 
 
 @router.post("/{session_id}/apply-restore")
+@session_operation
 def apply_restore(session_id: str, req: ApplyRestoreRequest):
     session = get_session(session_id)
     if not session:
@@ -176,19 +257,55 @@ def apply_restore(session_id: str, req: ApplyRestoreRequest):
         )
         cropped = align_to_ffhq(preprocessed_bgr, updated_kps, output_size=512)
 
+    checkpoint()
     os.makedirs("outputs/app_uploads", exist_ok=True)
     cropped_filename = f"{session_id}_crop.png"
     cropped_path = os.path.join("outputs", "app_uploads", cropped_filename)
-    cv2.imwrite(cropped_path, cropped)
+    if not cv2.imwrite(cropped_path, cropped):
+        raise HTTPException(status_code=500, detail="Ghi ảnh crop thất bại.")
 
     session.cropped_path = cropped_path
+    # T05: apply-restore cũng tạo revision mới (preview tạm ở restore-preview
+    # không tự thay input; chỉ endpoint này thay crop đã áp dụng).
+    revision = (
+        persist_crop_revision(
+            purpose="reference",
+            detection_id=session.chosen_detection_id,
+            cropped_bgr=cropped,
+            method="restored" if req.use_restored else "ffhq",
+            preprocessing={
+                "pipeline": "preprocess_face_image+align_to_ffhq"
+                if req.use_restored
+                else "align_to_ffhq",
+                "mode": req.mode,
+                "padding_enabled": req.padding_enabled,
+                "white_balance_enabled": req.white_balance_enabled,
+                "fidelity_weight": req.fidelity_weight,
+                "output_size": 512,
+            },
+            transform_to_source={
+                "bbox_original": [float(v) for v in session.chosen_face.bbox],
+                "output_size": 512,
+            },
+        )
+        if session.chosen_detection_id
+        else None
+    )
+    if revision is not None:
+        session.current_crop_id = revision["crop_id"]
     save_session(session)
+    save_session_record(session, current_crop_id=session.current_crop_id)
 
     cropped_preview_url = f"/outputs/app_uploads/{cropped_filename}"
-    return {"status": "ok", "cropped_preview_url": cropped_preview_url}
+    return {
+        "status": "ok",
+        "cropped_preview_url": cropped_preview_url,
+        "crop_id": session.current_crop_id,
+    }
 
 
 @router.post("/{session_id}/resolve-age", response_model=ResolveAgeResponse)
+@session_operation
 def resolve_age(session_id: str, req: ResolveAgeRequest):
     session = get_session(session_id)
     if not session:
@@ -222,9 +339,122 @@ def resolve_age(session_id: str, req: ResolveAgeRequest):
 
     session.initial_age = initial_age
     save_session(session)
+    save_session_record(
+        session, initial_age=initial_age, gender_word=session.gender_word,
+        photo_year=session.photo_year)
 
     return ResolveAgeResponse(
         initial_age=initial_age,
         gender_word=session.gender_word,
         warning_text=warning_text
     )
+
+
+@router.get("/{session_id}")
+@session_operation
+def get_session_state(session_id: str):
+    """T12: mở lại session sau restart (RAM trước, dựng lại từ DB + storage)."""
+    session = get_session(session_id) or restore_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Phiên làm việc không tồn tại.")
+    faces = [
+        {"index": i, "bbox": [float(v) for v in face.bbox],
+         "det_score": float(face.det_score)}
+        for i, face in enumerate(session.faces)
+    ]
+    cropped_url = None
+    if session.cropped_path:
+        norm = session.cropped_path.replace("\\", "/")
+        if "outputs/" in norm:
+            cropped_url = "/" + norm[norm.index("outputs/"):]
+    return {
+        "session_id": session.session_id,
+        "file_name": session.file_name,
+        "faces": faces,
+        "source_id": session.source_id,
+        "detection_ids": session.detection_ids,
+        "chosen_detection_id": session.chosen_detection_id,
+        "crop_id": session.current_crop_id,
+        "cropped_preview_url": cropped_url,
+        "gender_word": session.gender_word,
+        "initial_age": session.initial_age,
+        "photo_year": session.photo_year,
+    }
+
+
+def _delete_session_records(session_id: str):
+    """Xóa phiên: gỡ RAM, bản ghi sessions trong DB và file crop/preview legacy.
+
+    Dữ liệu lineage face_media (source/crop/job) được giữ lại để bảo toàn audit;
+    file gốc trong storage không bị xóa ở đây.
+    """
+    removed: dict = {"ram": False, "db_record": False, "files": []}
+    from backend.api.database import get_pool, DatabaseConfigError
+    try:
+
+        with get_pool().connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM face_media.sessions WHERE id = %s",
+                    (session_id,))
+                if cur.rowcount:
+                    removed["db_record"] = True
+    except DatabaseConfigError:
+        # Legacy mode has no configured database.
+        pass
+    except Exception:
+        raise HTTPException(503, "Không thể xóa bản ghi phiên trong database. Hãy thử lại.") from None
+    if get_session(session_id) is not None:
+        delete_session(session_id)
+        removed["ram"] = True
+    for name in (f"{session_id}_crop.png", f"{session_id}_preview.png"):
+        path = os.path.join("outputs", "app_uploads", name)
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                removed["files"].append(name)
+            except OSError:
+                pass
+    if not removed["ram"] and not removed["db_record"] and not removed["files"]:
+        raise HTTPException(status_code=404, detail="Phiên làm việc không tồn tại.")
+    from backend.api.session_store import jobs
+    for job_id, job in list(jobs.items()):
+        if job.session_id == session_id:
+            jobs.pop(job_id, None)
+    return {"session_id": session_id, "deleted": removed}
+
+
+def _validate_session_id(session_id: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", session_id):
+        raise HTTPException(400, "Mã phiên không hợp lệ.")
+
+
+@router.post("/{session_id}/stop")
+def stop_session(session_id: str):
+    _validate_session_id(session_id)
+    from backend.api.job_runner import request_cancel
+    from backend.api.session_store import jobs
+    state = lifecycle_status(session_id)
+    related = [j for j in list(jobs.values()) if j.session_id == session_id]
+    if get_session(session_id) is None and not related and not state['active_tasks']:
+        if restore_session(session_id) is None:
+            raise HTTPException(404, "Phiên làm việc không tồn tại.")
+    state = stop_tasks(session_id)
+    for job in related:
+        request_cancel(job.job_id)
+    return state
+
+
+@router.get("/{session_id}/lifecycle")
+def get_session_lifecycle(session_id: str):
+    _validate_session_id(session_id)
+    return lifecycle_status(session_id)
+
+
+@router.delete("/{session_id}")
+def delete_session_state(session_id: str):
+    _validate_session_id(session_id)
+    if lifecycle_status(session_id)['status'] == 'deleted':
+        raise HTTPException(404, "Phiên làm việc không tồn tại.")
+    result = delete_when_idle(session_id, _delete_session_records)
+    return JSONResponse(result, status_code=200 if result['status'] == 'deleted' else 202)

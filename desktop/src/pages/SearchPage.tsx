@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { watchJob } from '../api/jobMonitor';
 import { useSearchStore } from '../store/useSearchStore';
 import { useSearchApi } from '../api/useSearchApi';
 import { WizardStepper, WizardStep } from '../components/WizardStepper';
@@ -12,7 +13,8 @@ import { Skeleton } from '../components/Skeleton';
 import {
   UploadCloud,
   Play,
-  RotateCcw,
+  Square,
+  Trash2,
   ShieldCheck,
   ArrowLeft,
   RefreshCw,
@@ -22,8 +24,12 @@ import {
 
 export const SearchPage: React.FC = () => {
   const store = useSearchStore();
-  const { uploadImage, runPipeline, applyRestoration } = useSearchApi();
+  const { uploadImage, runPipeline, applyRestoration, stopSession, deleteSession } = useSearchApi();
   const [isUploading, setIsUploading] = useState(false);
+  const [sessionAction, setSessionAction] = useState<{ id: string; kind: 'stop' | 'delete' } | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<{ id: string; message: string } | null>(null);
+  const [startingSession, setStartingSession] = useState<string | null>(null);
+  const isSessionBusy = sessionAction?.id === store.sessionId || startingSession === store.sessionId && startingSession !== null;
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Quản lý trạng thái Wizard 3 bước (khóa bước tuyến tính)
@@ -126,11 +132,18 @@ export const SearchPage: React.FC = () => {
 
   // Đồng bộ khi chọn xem lại một phiên trong lịch sử
   useEffect(() => {
-    if (store.isHistoricalView && currentStep !== 'results') {
+    if (store.isHistoricalView && store.jobStatus === 'done' && currentStep !== 'results') {
       setCompletedSteps(['restore', 'generate']);
       store.setCurrentWizardStep('results');
     }
-  }, [store.isHistoricalView, currentStep]);
+  }, [store.isHistoricalView, store.jobStatus, currentStep]);
+
+  useEffect(() => {
+    if (store.jobId && store.jobStatus === 'running') {
+      setCompletedSteps(['restore']);
+      watchJob(store.jobId);
+    }
+  }, [store.jobId, store.jobStatus]);
 
   // Đồng bộ khi bấm "Tìm kiếm mới" từ Sidebar hoặc Command Palette (không áp dụng khi đang ở chế độ Demo)
   useEffect(() => {
@@ -190,34 +203,55 @@ export const SearchPage: React.FC = () => {
         });
       } catch (e) {
         console.warn('Could not apply backend restoration:', e);
+        return;
       }
     }
+    if (useSearchStore.getState().sessionId !== store.sessionId) return;
     setCompletedSteps((prev) => Array.from(new Set([...prev, 'restore'])));
     setCurrentStep('generate');
   };
 
   // Khởi động pipeline FADING ở Bước 2
   const handleRun = async () => {
-    if (!store.sessionId) return;
+    if (!store.sessionId || isSessionBusy) return;
+    setStartingSession(store.sessionId);
     try {
       await runPipeline(store.sessionId, store.galleryDir, store.photoYear);
     } catch (err: any) {
       console.error(err);
       const msg = err.response?.data?.detail || 'Không thể bắt đầu pipeline.';
       alert(msg);
+    } finally {
+      setStartingSession(null);
     }
   };
 
-  // Hủy tiến trình
-  const handleCancelJob = () => {
-    store.updateJobProgress('idle', 'specialization', undefined, 'Tiến trình đã được người dùng dừng lại');
+  const handleSessionAction = async (kind: 'stop' | 'delete') => {
+    const sessionId = store.sessionId;
+    if (!sessionId || isSessionBusy) return;
+    setSessionAction({ id: sessionId, kind });
+    setSessionNotice(null);
+    try {
+      if (kind === 'delete') {
+        await deleteSession(sessionId);
+        if (useSearchStore.getState().sessionId === sessionId) {
+          useSearchStore.getState().startNewSearch();
+          setCompletedSteps([]);
+        }
+      } else {
+        await stopSession(sessionId);
+        setSessionNotice({ id: sessionId, message: 'Các tác vụ của phiên đã dừng. Dữ liệu đã lưu được giữ lại.' });
+      }
+    } catch (err: any) {
+      setSessionNotice({ id: sessionId, message: err.response?.data?.detail || err.message || 'Không thể xử lý phiên. Vui lòng thử lại.' });
+    } finally {
+      setSessionAction(current => current?.id === sessionId ? null : current);
+    }
   };
-
-  // Làm mới toàn bộ phiên tìm kiếm
+  const handleCancelJob = () => handleSessionAction('stop');
   const handleResetAll = () => {
-    store.resetForNewUpload();
+    store.startNewSearch();
     setCompletedSteps([]);
-    setCurrentStep('restore');
   };
 
   const currentYear = new Date().getFullYear();
@@ -228,7 +262,7 @@ export const SearchPage: React.FC = () => {
     store.photoYear !== null &&
     store.photoYear >= 1900 &&
     store.photoYear < currentYear &&
-    store.jobStatus !== 'running'
+    store.jobStatus !== 'running' && !isSessionBusy
   );
 
   const croppedFaceFullUrl = store.croppedPreviewUrl?.startsWith('/') || store.croppedPreviewUrl?.startsWith('data:')
@@ -240,7 +274,7 @@ export const SearchPage: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 space-y-6">
       {/* Header phẳng, hiện đại kiểu workspace */}
-      <header className="flex items-center justify-between border-b border-[#E5E7EB] pb-4">
+      <header className="flex flex-wrap gap-3 items-center justify-between border-b border-[#E5E7EB] pb-4">
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-xl font-bold text-[#111827]">
@@ -262,17 +296,26 @@ export const SearchPage: React.FC = () => {
           </div>
 
           {store.sessionId && (
-            <button
-              onClick={handleResetAll}
-              className="flex items-center gap-1.5 text-xs bg-white hover:bg-[#F9FAFB] text-[#111827] px-3 py-1.5 rounded-lg border border-[#E5E7EB] transition-colors shadow-2xs hover-lift cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-[#6B7280]" />
-              <span>Làm mới</span>
-            </button>
+            <>
+              <button type="button" onClick={() => void handleSessionAction('stop')} disabled={isSessionBusy}
+                className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-amber-300 text-amber-700 disabled:opacity-50 hover:bg-amber-50">
+                <Square className="w-3.5 h-3.5" />
+                {sessionAction?.id === store.sessionId && sessionAction.kind === 'stop' ? 'Đang dừng…' : 'Dừng phiên'}
+              </button>
+              <button type="button" onClick={() => void handleSessionAction('delete')} disabled={isSessionBusy}
+                className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-red-300 text-red-600 disabled:opacity-50 hover:bg-red-50">
+                <Trash2 className="w-3.5 h-3.5" />
+                {sessionAction?.id === store.sessionId && sessionAction.kind === 'delete' ? 'Đang dừng và xóa…' : 'Xóa phiên'}
+              </button>
+            </>
           )}
         </div>
       </header>
 
+      {store.jobStatus === 'error' && store.jobError && <p role="alert" className="text-sm text-red-700">{store.jobError}</p>}
+      {sessionAction?.id === store.sessionId && <p role="status" className="text-sm text-amber-700">Đang chờ tác vụ dừng an toàn. Bạn có thể chuyển sang phiên khác.</p>}
+      {sessionNotice?.id === store.sessionId && <p role="status" className="text-sm text-[#374151]">{sessionNotice.message}</p>}
+      <fieldset disabled={isSessionBusy} className="space-y-6 min-w-0">
       {/* THANH STEPPER ĐIỀU HƯỚNG CỐ ĐỊNH TRÊN ĐẦU MỌI MÀN HÌNH */}
       <WizardStepper
         currentStep={currentStep}
@@ -642,6 +685,7 @@ export const SearchPage: React.FC = () => {
           )}
         </div>
       )}
+      </fieldset>
     </div>
   );
 };

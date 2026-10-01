@@ -1,0 +1,5 @@
+# Verified local GPU stack for standalone FADING generation.
+# Install in NCKH .venv with:
+# python -m pip install -r requirements-generation-gpu.txt --index-url https://download.pytorch.org/whl/cu124
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124

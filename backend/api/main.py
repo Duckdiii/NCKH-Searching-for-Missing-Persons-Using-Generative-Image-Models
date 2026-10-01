@@ -1,8 +1,10 @@
 import os
+import secrets
 import socket
 import sys
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
@@ -11,12 +13,72 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-from backend.api.routers import health, jobs, session
+from contextlib import asynccontextmanager
+
+from backend.api.database import close_pool, init_pool
+from backend.api.routers import cameras, health, identities, jobs, ops, search_runs, search_sources, session, video_verify
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # T01: mở pool lúc startup (thiếu DATABASE_URL vẫn cho app chạy để
+    # endpoint không-DB hoạt động; lỗi cấu hình chỉ nêu tên biến, không in DSN).
+    try:
+        init_pool()
+    except Exception as exc:
+        print(f"[database] pool chưa khởi tạo: {exc}")
+    # T12: job/run đang dở khi process chết → error 'interrupted'
+    # (không tự chạy lại diffusion khi chưa có chiến lược resume).
+    try:
+        from backend.api import repositories as repo
+        from backend.api.database import get_pool
+
+        with get_pool().connection() as conn:
+            counts = repo.reconcile_interrupted(conn)
+        if counts["generation_jobs"] or counts["ingestion_runs"]:
+            print(f"[database] reconcile interrupted: {counts}")
+    except Exception as exc:
+        print(f"[database] reconcile bỏ qua: {exc}")
+    # P3: worker outbox nền — áp dụng event vector vào delta index định kỳ
+    # (ít nhất một lần, dedupe event_id, một writer). Tắt bằng
+    # INDEX_DRAIN_INTERVAL_SEC=0. Daemon, không chặn shutdown.
+    _drain_stop: list = []
+    _drain_thread = None
+    try:
+        interval = float(os.environ.get("INDEX_DRAIN_INTERVAL_SEC", "30"))
+    except ValueError:
+        interval = 30.0
+    if interval > 0:
+        import threading as _th
+
+        def _drain_loop() -> None:
+            import time as _time
+            while not _drain_stop:
+                try:
+                    from backend.api import gallery as _gal
+                    out = _gal.drain_outbox_once()
+                    if out.get("applied") or out.get("deleted"):
+                        print(f"[index] outbox drain: {out}")
+                except Exception as exc:
+                    print(f"[index] drain bỏ qua: {exc}")
+                _time.sleep(interval)
+
+        _drain_thread = _th.Thread(target=_drain_loop, daemon=True)
+        _drain_thread.start()
+    yield
+    _drain_stop.append(True)
+    # Đóng pool lúc shutdown để không rò connection.
+    try:
+        close_pool()
+    except Exception:
+        pass
+
 
 app = FastAPI(
     title="Missing Person Search API",
     description="FastAPI backend bọc quanh pipeline FADING cho desktop application",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS middleware for Tauri webview and local dev
@@ -28,6 +90,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# T12: mô hình truy cập. Mặc định local một người (không guard).
+# Đặt FACE_MEDIA_API_KEY để yêu cầu header X-API-Key trên mọi /api/*
+# (trừ health). So sánh constant-time; key sai/thiếu → 401, không lộ gì thêm.
+@app.middleware("http")
+async def _api_key_guard(request: Request, call_next):
+    required = os.environ.get("FACE_MEDIA_API_KEY", "")
+    path = request.url.path
+    if required and path.startswith("/api") and not path.startswith("/api/health"):
+        provided = request.headers.get("x-api-key", "")
+        if not provided or not secrets.compare_digest(provided, required):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Thiếu hoặc sai API key."})
+    return await call_next(request)
+
+
 # Mount outputs and data static directories
 os.makedirs("outputs", exist_ok=True)
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
@@ -38,6 +116,12 @@ if os.path.exists("data"):
 app.include_router(health.router)
 app.include_router(session.router)
 app.include_router(jobs.router)
+app.include_router(video_verify.router)
+app.include_router(search_sources.router)
+app.include_router(cameras.router)
+app.include_router(search_runs.router)
+app.include_router(identities.router)
+app.include_router(ops.router)
 
 
 def get_free_port() -> int:
