@@ -4,6 +4,8 @@ Gói `nckh_vast_demo.tar` chứa: backend (FastAPI), frontend đã build (`deskt
 checkpoint UNet chuyên biệt + MiVOLO, gallery mẫu, và các script trong thư mục này.
 Stable Diffusion 1.5 và InsightFace tự tải trên máy vast (nhanh hơn upload).
 
+> Trạng thái lần triển khai gần nhất, lỗi đã gặp và cách mở lại nhanh: [NHAT-KY-TRIEN-KHAI.md](NHAT-KY-TRIEN-KHAI.md).
+
 ## 1. Thuê máy
 - Template **PyTorch** (có `/venv/main`, CUDA 12.x), GPU **RTX 3090 24GB**, đĩa ≥ 40GB.
 - Launch mode: **SSH** (hoặc Jupyter + SSH). Thêm SSH public key của bạn trước khi tạo instance.
