@@ -44,6 +44,13 @@ def is_backend_alive() -> bool:
     return False
 
 
+def is_port_busy(port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
 def wait_for_backend(proc, timeout_sec=300) -> bool:
     start_t = time.time()
     while time.time() - start_t < timeout_sec:
@@ -128,6 +135,14 @@ def main():
     # Kiểm tra xem backend đã chạy sẵn từ trước chưa
     if is_backend_alive():
         print(f"ℹ️ Backend API server đã đang chạy sẵn trên cổng {BACKEND_PORT}.")
+    elif is_port_busy(BACKEND_PORT):
+        # Cổng bị chiếm nhưng health không 200: backend cũ (code lỗi thời / pythonw chạy ngầm)
+        # hoặc ứng dụng khác. Báo ngay thay vì đợi uvicorn bind lỗi (Errno 10048).
+        print(f"❌ Cổng {BACKEND_PORT} đang bị tiến trình khác chiếm nhưng không phải backend hoạt động bình thường.")
+        print("  • Xem tiến trình:  Get-NetTCPConnection -LocalPort "
+              f"{BACKEND_PORT} -State Listen | Select OwningProcess")
+        print("  • Tắt tiến trình:  Stop-Process -Id <PID>   (rồi chạy lại script này)")
+        sys.exit(1)
     else:
         print(f"[1/3] Đang khởi động Backend API server trên cổng {BACKEND_PORT}...")
         env = os.environ.copy()
