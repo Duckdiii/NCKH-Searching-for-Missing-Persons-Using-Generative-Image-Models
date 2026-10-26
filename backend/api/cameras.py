@@ -27,6 +27,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import cv2
 
+from backend.api.camera_tracks import MAX_CANDIDATES_PER_TRACKLET
+
 logger = logging.getLogger(__name__)
 
 _SESSIONS: dict[str, dict] = {}
@@ -497,7 +499,11 @@ def _consumer(session: dict) -> None:
     # sampling_policy có thể nới timeout khi fps thấp (mất mặt vài mẫu liên tiếp
     # vẫn giữ cùng tracklet); mặc định giữ TRACK_TIMEOUT_SEC của tracker.
     timeout = session.get("tracker_timeout_sec")
-    tracker = CameraTracker(timeout_sec=float(timeout)) if timeout else CameraTracker()
+    kwargs = {"max_candidates": int(session.get("max_candidates", MAX_CANDIDATES_PER_TRACKLET)),
+              "min_quality": float(session.get("min_quality", 0.0))}
+    if timeout:
+        kwargs["timeout_sec"] = float(timeout)
+    tracker = CameraTracker(**kwargs)
     session["tracker"] = tracker
     processed = 0
     try:
@@ -574,6 +580,8 @@ def start_capture(
     *, camera_id: str, sample_fps: float = 1.0, max_frames: int = 900,
     capture_seconds: Optional[float] = None, preprocess_on: bool = True,
     sampling_plan: Optional[dict] = None,
+    max_candidates: int = MAX_CANDIDATES_PER_TRACKLET, min_quality: float = 0.0,
+    config_source: str = "manual",
 ) -> dict:
     """Mở phiên capture crop-only mới. Trả {source_id, run_id, camera_id}.
 
@@ -642,6 +650,8 @@ def start_capture(
         "camera_name": camera["name"],
         "sampling_plan": sampling_plan,
         "tracker_timeout_sec": (sampling_plan or {}).get("tracker_timeout_sec"),
+        "max_candidates": int(max_candidates), "min_quality": float(min_quality),
+        "config_source": config_source,
     }
     producer = threading.Thread(target=_producer, args=(session,), daemon=True)
     consumer = threading.Thread(target=_consumer, args=(session,), daemon=True)
@@ -740,6 +750,20 @@ def stop_capture(source_id: str) -> dict:
         "interval_scale": round(float(session.get("interval_scale", 1.0)), 2),
         "ingest_latency_ms": session.get("ingest_latency_ms"),
         "error_message": error,
+        **_config_status(session),
+    }
+
+
+def _config_status(session: dict) -> dict:
+    """Cấu hình lấy mẫu/chọn crop đang áp dụng + số crop bị loại (để chỉnh lại)."""
+    tracker = session.get("tracker")
+    return {
+        "sample_fps": float(session.get("sample_fps", 0.0)),
+        "max_candidates": int(session.get("max_candidates", MAX_CANDIDATES_PER_TRACKLET)),
+        "min_quality": float(session.get("min_quality", 0.0)),
+        "config_source": session.get("config_source", "manual"),
+        "rejected_gate": int(getattr(tracker, "rejected_gate_total", 0)),
+        "rejected_low_quality": int(getattr(tracker, "rejected_low_quality_total", 0)),
     }
 
 
@@ -759,4 +783,5 @@ def capture_status(source_id: str) -> dict:
             "dropped_frames": session["dropped"],
             "reconnects": session["reconnects"],
             "error_message": session.get("error"),
+            **_config_status(session),
         }

@@ -34,6 +34,8 @@ from backend.api import crop_quality as cq
 CROP_MAX_LONG_EDGE = 256
 CROP_JPEG_QUALITY = 85
 MAX_CANDIDATES_PER_TRACKLET = 3
+# Giới hạn K cấu hình được (pipeline_optimizer tìm K trong 1..5; exemplar vẫn ≤ 3 slot).
+MAX_CANDIDATES_LIMIT = 5
 # Thay mẫu chỉ khi quality tốt hơn đáng kể (tránh churn vì cosine dao động).
 REPLACE_QUALITY_MARGIN = 0.08
 # Góc khác hữu ích: embedding cosine < ngưỡng này so với mọi mẫu đã giữ.
@@ -207,6 +209,7 @@ class TrackState:
     centroid: cq.IdentityCentroid = field(default_factory=cq.IdentityCentroid)
     rejected_gate: int = 0
     rejected_identity: int = 0
+    rejected_low_quality: int = 0
 
 
 def finalize_candidates(tr: TrackState) -> None:
@@ -242,7 +245,18 @@ class CameraTracker:
                  cooldown_sec: float = COOLDOWN_SEC,
                  max_tracklets_per_day: int = MAX_TRACKLETS_PER_CAMERA_PER_DAY,
                  checkpoint_min_interval_sec: float = CHECKPOINT_MIN_INTERVAL_SEC,
+                 max_candidates: int = MAX_CANDIDATES_PER_TRACKLET,
+                 min_quality: float = 0.0,
                  now: Optional[float] = None):
+        # K crop giữ mỗi tracklet và ngưỡng chất lượng tối thiểu (pipeline_optimizer).
+        if not 1 <= int(max_candidates) <= MAX_CANDIDATES_LIMIT:
+            raise ValueError(f"max_candidates phải trong 1..{MAX_CANDIDATES_LIMIT}.")
+        if not 0.0 <= float(min_quality) < 1.0:
+            raise ValueError("min_quality phải trong [0, 1).")
+        self.max_candidates = int(max_candidates)
+        self.min_quality = float(min_quality)
+        self.rejected_gate_total = 0
+        self.rejected_low_quality_total = 0
         self.iou_threshold = iou_threshold
         self.timeout_sec = timeout_sec
         self.hard_timeout_sec = hard_timeout_sec
@@ -438,8 +452,14 @@ class CameraTracker:
         if report.gate:
             # Nghiêng hẳn / bị cắt / landmark vô lý: không bao giờ là crop tốt.
             tr.rejected_gate += 1
+            self.rejected_gate_total += 1
             return
         quality = report.total
+        if quality < self.min_quality:
+            # Dưới q_min: không đủ tốt để lưu (tiết kiệm ổ + giảm khớp nhầm).
+            tr.rejected_low_quality += 1
+            self.rejected_low_quality_total += 1
+            return
         tr.centroid.add(emb, quality)
         consistency = tr.centroid.consistency(emb)
         crop = copy_crop(frame_bgr, bbox)
@@ -459,7 +479,7 @@ class CameraTracker:
             cand.sha256 = ""
         if cand.sha256 and cand.sha256 in tr.seen_hashes:
             return
-        if len(tr.candidates) < MAX_CANDIDATES_PER_TRACKLET:
+        if len(tr.candidates) < self.max_candidates:
             # Thêm góc mới hữu ích hoặc chất lượng cao hơn.
             if self._is_novel_angle(tr, emb) or not tr.candidates \
                     or cand.score > min(c.score for c in tr.candidates):
@@ -467,7 +487,7 @@ class CameraTracker:
                 if cand.sha256:
                     tr.seen_hashes.add(cand.sha256)
                 tr.candidates.sort(key=lambda c: c.score, reverse=True)
-                tr.candidates = tr.candidates[:MAX_CANDIDATES_PER_TRACKLET]
+                tr.candidates = tr.candidates[:self.max_candidates]
             return
         # Đã đủ 3: chỉ thay khi tốt hơn đáng kể hoặc góc mới hữu ích.
         worst = min(tr.candidates, key=lambda c: c.score)

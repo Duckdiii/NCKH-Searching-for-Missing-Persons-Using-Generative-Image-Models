@@ -145,10 +145,17 @@ Lợi ích theo K ở hành lang 4K, 5 fps:
    ống kính trước. Ưu tiên hướng người đi tới camera.
 2. **Tối ưu**: gọi `POST /api/ops/pipeline/optimize` với ngân sách GPU (`fps_budget`), ổ đĩa
    (`storage_bytes`) và lưu lượng (`people_per_hour`). Lấy `recommended.fps`, `k`, `q_min`.
-3. **Bật camera**: `POST /api/cameras/{id}/start` với `sample_fps = recommended.fps` và `geometry`.
-   Tracker tự nới timeout theo fps.
-   Hiện K cố định 3 (`MAX_CANDIDATES_PER_TRACKLET`) và chưa có q_min; nối hai tham số này vào
-   phiên camera là việc tiếp theo.
+3. **Bật camera** với `geometry` và `"auto_optimize": true`: backend tự chạy bộ tối ưu rồi áp dụng
+   `fps`, `K` (`max_candidates`) và `q_min` (`min_quality`) được khuyến nghị. Tracker cũng tự
+   nới timeout theo fps. Tham số nào truyền tay (`sample_fps`, `max_candidates`, `min_quality`)
+   thì luôn được ưu tiên. Nếu khuyến nghị bị tách tracklet (`k = null`), dùng K = 3.
+   ```bash
+   curl -X POST localhost:8000/api/cameras/<id>/start -H 'content-type: application/json'      -d '{"auto_optimize": true, "geometry": {"motion": "approaching", "image_width_px": 3840,
+          "hfov_deg": 60, "far_m": 15, "people_per_hour": 120, "fps_budget": 4}}'
+   ```
+   Phản hồi và `GET /api/capture-sessions/{source_id}` báo cấu hình đang chạy (`sample_fps`,
+   `max_candidates`, `min_quality`, `config_source` = manual | sampling_plan | optimizer[+manual]),
+   cùng số crop bị loại (`rejected_gate`, `rejected_low_quality`) để chỉnh lại q_min nếu loại quá nhiều.
 4. **Quên**: kiểm tra `GET /api/ops/forgetting/schedule`, chạy `POST /api/ops/forgetting/run`
    (dry run), rồi bật `FORGETTING_ENABLED=true` khi đã đồng ý chính sách.
 5. **Hiệu chuẩn lại** khi có crop camera thật: chạy `eval_crop_quality.py --calibrate`. Sau mỗi

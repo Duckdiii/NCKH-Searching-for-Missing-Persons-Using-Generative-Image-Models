@@ -287,11 +287,17 @@ class PipelineOptimizeRequest(SamplingPlanRequest):
 
 
 class CaptureStartRequest(BaseModel):
-    # None + có geometry → tự chọn fps theo sampling_policy; None + không geometry → 1.0.
+    # Giá trị nhập tay luôn được ưu tiên. Để None:
+    # - có geometry + auto_optimize → fps, K, q_min theo pipeline_optimizer;
+    # - có geometry, không auto_optimize → fps theo sampling_policy, K = 3, q_min = 0;
+    # - không geometry → fps 1.0, K = 3, q_min = 0.
     sample_fps: Optional[float] = Field(None, gt=0, le=10)
     max_frames: int = Field(900, gt=0, le=100000)
     capture_seconds: Optional[float] = Field(None, gt=0)
-    geometry: Optional[SamplingPlanRequest] = None
+    geometry: Optional[PipelineOptimizeRequest] = None
+    auto_optimize: bool = False
+    max_candidates: Optional[int] = Field(None, ge=1, le=5)
+    min_quality: Optional[float] = Field(None, ge=0, lt=1)
 
 
 class ForgettingRunRequest(BaseModel):
@@ -309,6 +315,14 @@ class CaptureSessionStatus(BaseModel):
     dropped_frames: int = 0
     reconnects: int = 0
     error_message: Optional[str] = None
+    # Cấu hình đang áp dụng (sampling_policy / pipeline_optimizer / nhập tay).
+    sample_fps: Optional[float] = None
+    max_candidates: Optional[int] = None
+    min_quality: Optional[float] = None
+    config_source: Optional[str] = None
+    rejected_gate: int = 0
+    rejected_low_quality: int = 0
+    optimizer: Optional[dict] = None
 
 
 # ---------------- P2: identities ----------------

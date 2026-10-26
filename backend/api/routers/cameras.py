@@ -21,6 +21,41 @@ from backend.api.sampling_policy import plan_from_dict
 router = APIRouter(prefix="/api", tags=["cameras"])
 
 
+def resolve_capture_config(body: CaptureStartRequest) -> dict:
+    """Chọn fps, K (crop/tracklet), q_min cho phiên camera. Giá trị nhập tay thắng."""
+    from backend.api.camera_tracks import MAX_CANDIDATES_PER_TRACKLET
+
+    fps, k, q_min = body.sample_fps, body.max_candidates, body.min_quality
+    plan = optimizer = None
+    source = "manual"
+    if body.geometry is not None:
+        geo = body.geometry.model_dump()
+        geo.pop("include_grid", None)
+        plan_keys = SamplingPlanRequest.model_fields.keys()
+        plan = plan_from_dict({key: v for key, v in geo.items() if key in plan_keys})
+        source = "sampling_plan"
+        if body.auto_optimize:
+            from backend.api import pipeline_optimizer as po
+            res = po.optimize_from_dict(geo)
+            rec = res["recommended"]
+            optimizer = {"recommended": rec, "best_p_found": res["best_p_found"],
+                         "quality_model": res["quality_model"],
+                         "warnings": res["warnings"]}
+            source = "optimizer"
+            fps = rec["fps"] if fps is None else fps
+            # Bị tách tracklet (k=None): mỗi tracklet 1 khung → K không đổi kết quả.
+            k = (rec["k"] or MAX_CANDIDATES_PER_TRACKLET) if k is None else k
+            q_min = rec["q_min"] if q_min is None else q_min
+        elif fps is None:
+            fps = plan["fps"]
+    if body.sample_fps is not None and source != "manual":
+        source += "+manual"
+    return {"sample_fps": float(min(fps or 1.0, 10.0)),
+            "max_candidates": int(k or MAX_CANDIDATES_PER_TRACKLET),
+            "min_quality": float(q_min or 0.0), "config_source": source,
+            "plan": plan, "optimizer": optimizer}
+
+
 @router.post("/cameras/sampling-plan")
 def sampling_plan_view(body: SamplingPlanRequest):
     """Tính fps lấy mẫu từ hình học camera (không cần DB, không bật camera)."""
@@ -74,23 +109,23 @@ def start_capture_view(camera_id: str, body: CaptureStartRequest):
 
         preprocess_on = bool(
             get_config().get("video_preprocess", {}).get("enabled", True))
-        plan = None
-        sample_fps = body.sample_fps
-        if body.geometry is not None:
-            plan = plan_from_dict(body.geometry.model_dump())
-            if sample_fps is None:
-                sample_fps = plan["fps"]
+        cfg = resolve_capture_config(body)
         started = cam_service.start_capture(
-            camera_id=camera_id, sample_fps=sample_fps or 1.0,
+            camera_id=camera_id, sample_fps=cfg["sample_fps"],
             max_frames=body.max_frames, capture_seconds=body.capture_seconds,
-            preprocess_on=preprocess_on, sampling_plan=plan)
+            preprocess_on=preprocess_on, sampling_plan=cfg["plan"],
+            max_candidates=cfg["max_candidates"], min_quality=cfg["min_quality"],
+            config_source=cfg["config_source"])
     except repo.NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except (ValueError, ConnectionError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return CaptureSessionStatus(
         source_id=started["source_id"], camera_id=camera_id,
-        run_id=started["run_id"], status="running")
+        run_id=started["run_id"], status="running",
+        sample_fps=cfg["sample_fps"], max_candidates=cfg["max_candidates"],
+        min_quality=cfg["min_quality"], config_source=cfg["config_source"],
+        optimizer=cfg["optimizer"])
 
 
 @router.get("/capture-sessions/{source_id}", response_model=CaptureSessionStatus)
