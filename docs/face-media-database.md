@@ -130,6 +130,8 @@ preprocessing. FAISS có thể dựng lại từ DB; lưu mapping FAISS ID → e
 | backend/api/ingest.py + cameras.py | Search camera crop-only: tracklet → crop/vector/metadata + auto-link ID |
 | backend/api/identity_link.py | Liên kết tracklet xuyên camera (giả thuyết, tách/gộp có revision) |
 | backend/api/gallery.py + retention.py | Index FAISS batch/delta/tombstone; retention/TTL/GC ledger |
+| backend/api/forgetting.py | Quên dần theo đường cong Ebbinghaus (củng cố, chất lượng, áp lực ổ), lược → quên qua ledger; xem docs/thuat-toan-quen-va-lay-mau.md |
+| backend/api/sampling_policy.py | Chọn fps camera từ góc nhìn/khoảng cách/tốc độ đi (phủ + bám vết + ngân sách GPU) |
 Session_id chỉ là mã tương quan vì session hiện nằm trong RAM. Thiết kế này chưa
 thêm bảng hồ sơ người mất tích hoặc kết quả đối soát; similarity không phải xác
 nhận danh tính và không làm thay đổi nguồn gốc của ảnh.

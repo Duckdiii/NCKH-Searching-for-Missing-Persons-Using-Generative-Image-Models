@@ -5,16 +5,21 @@
 - POST /api/ops/retention/plan: liệt kê hết TTL (không xóa).
 - POST /api/ops/retention/gc: chạy GC ledger một lượt (dry_run mặc định true).
 - POST /api/ops/retention/orphans: orphan GC (grace, dry_run mặc định true).
+- GET /api/ops/forgetting/schedule: lịch quên theo số ngày xuất hiện/chất lượng.
+- POST /api/ops/forgetting/plan: kế hoạch quên dần (không xóa).
+- POST /api/ops/forgetting/run: thực thi (dry_run mặc định; quên thật cần
+  FORGETTING_ENABLED=true), xóa qua deletion_ledger → retention/gc.
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from backend.api import forgetting as fg
 from backend.api import retention as ret
 from backend.api.database import get_pool
 from backend.api.persistence import db_ping
-from backend.api.schemas import GCRunRequest, RetentionPolicyUpdate
+from backend.api.schemas import ForgettingRunRequest, GCRunRequest, RetentionPolicyUpdate
 from backend.api.storage import get_storage
 
 router = APIRouter(prefix="/api/ops", tags=["ops"])
@@ -96,3 +101,51 @@ def orphans_view(body: GCRunRequest):
     with get_pool().connection() as conn:
         return ret.orphan_gc(conn, get_storage(), batch=body.batch,
                              dry_run=body.dry_run)
+
+
+def _forget_params() -> "fg.ForgettingParams":
+    try:
+        return fg.ForgettingParams.from_env()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Cấu hình FORGET_* sai: {exc}")
+
+
+@router.get("/forgetting/schedule")
+def forgetting_schedule_view(sighting_days: int = 1, quality: float = 0.5):
+    """Sau bao lâu thì lược/quên một người, theo số ngày xuất hiện và chất lượng ảnh."""
+    p = _forget_params()
+    usage = ret.storage_guard().get("ratio")
+    s = fg.stability_days(sighting_days, quality, usage, p)
+    return {"sighting_days": sighting_days, "quality": quality,
+            "usage_ratio": usage, "stability_days": round(s, 2),
+            **fg.schedule(s, p, usage), "enabled": fg.enabled()}
+
+
+@router.post("/forgetting/plan")
+def forgetting_plan_view(batch: int = 500, include_decisions: bool = False):
+    _require_db()
+    p = _forget_params()
+    with get_pool().connection() as conn:
+        plan = fg.plan_forgetting(conn, batch=max(1, min(batch, 5000)), params=p,
+                                  usage_ratio=ret.storage_guard().get("ratio"))
+    summary = {k: plan[k] for k in ("now", "usage_ratio", "pressure_factor", "params",
+                                    "counts", "bytes_to_free")}
+    summary.update(crops_thin=len(plan["crops_thin"]), crops_forget=len(plan["crops_forget"]),
+                   tracklets_forget=len(plan["tracklets_forget"]), enabled=fg.enabled())
+    if include_decisions:
+        summary["decisions"] = plan["decisions"]
+    return summary
+
+
+@router.post("/forgetting/run")
+def forgetting_run_view(body: ForgettingRunRequest):
+    _require_db()
+    p = _forget_params()
+    with get_pool().connection() as conn:
+        plan = fg.plan_forgetting(conn, batch=body.batch, params=p,
+                                  usage_ratio=ret.storage_guard().get("ratio"))
+        try:
+            return {"counts": plan["counts"],
+                    **fg.apply_forgetting(conn, plan, dry_run=body.dry_run)}
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))

@@ -490,7 +490,10 @@ def _consumer(session: dict) -> None:
     embedder = session["embedder"]
     session["det_version"] = getattr(embedder, "model_name", "buffalo_l")
     session["run_key"] = str(uuid.uuid4())
-    tracker = CameraTracker()
+    # sampling_policy có thể nới timeout khi fps thấp (mất mặt vài mẫu liên tiếp
+    # vẫn giữ cùng tracklet); mặc định giữ TRACK_TIMEOUT_SEC của tracker.
+    timeout = session.get("tracker_timeout_sec")
+    tracker = CameraTracker(timeout_sec=float(timeout)) if timeout else CameraTracker()
     session["tracker"] = tracker
     processed = 0
     try:
@@ -566,8 +569,13 @@ def _consumer(session: dict) -> None:
 def start_capture(
     *, camera_id: str, sample_fps: float = 1.0, max_frames: int = 900,
     capture_seconds: Optional[float] = None, preprocess_on: bool = True,
+    sampling_plan: Optional[dict] = None,
 ) -> dict:
-    """Mở phiên capture crop-only mới. Trả {source_id, run_id, camera_id}."""
+    """Mở phiên capture crop-only mới. Trả {source_id, run_id, camera_id}.
+
+    ``sampling_plan`` (từ sampling_policy.plan_sampling) chỉ để ghi lại lý do chọn
+    fps và nới timeout tracker; ``sample_fps`` là giá trị thực dùng.
+    """
     from backend.api import repositories as repo
     from backend.api.database import get_pool
     from backend.api.ingest import get_ingest_embedder
@@ -628,6 +636,8 @@ def start_capture(
         "recorder": None, "record_path": None,
         "storage_policy": "crop_only", "frame_available": False,
         "camera_name": camera["name"],
+        "sampling_plan": sampling_plan,
+        "tracker_timeout_sec": (sampling_plan or {}).get("tracker_timeout_sec"),
     }
     producer = threading.Thread(target=_producer, args=(session,), daemon=True)
     consumer = threading.Thread(target=_consumer, args=(session,), daemon=True)

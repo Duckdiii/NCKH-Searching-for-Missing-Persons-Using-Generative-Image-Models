@@ -260,10 +260,34 @@ class CameraListResponse(BaseModel):
     total: int = 0
 
 
+class SamplingPlanRequest(BaseModel):
+    """Hình học camera + chuyển động người → fps (backend/api/sampling_policy.py)."""
+    hfov_deg: float = Field(90.0, gt=0, lt=180)
+    image_width_px: int = Field(1920, gt=0, le=16384)
+    motion: str = Field("crossing", pattern="^(crossing|approaching)$")
+    distance_m: float = Field(4.0, gt=0, le=200)
+    near_m: float = Field(1.5, gt=0, le=200)
+    far_m: float = Field(8.0, gt=0, le=500)
+    walk_speed_mps: float = Field(1.4, gt=0, le=15)
+    camera_fps: float = Field(25.0, gt=0, le=240)
+    shutter_s: float = Field(1.0 / 50, gt=0, le=1)
+    usable_ratio: float = Field(0.35, gt=0, le=1)
+    confidence: float = Field(0.95, gt=0, lt=1)
+    fps_budget: Optional[float] = Field(None, gt=0)
+    people_per_hour: Optional[float] = Field(None, gt=0)
+
+
 class CaptureStartRequest(BaseModel):
-    sample_fps: float = Field(1.0, gt=0, le=10)
+    # None + có geometry → tự chọn fps theo sampling_policy; None + không geometry → 1.0.
+    sample_fps: Optional[float] = Field(None, gt=0, le=10)
     max_frames: int = Field(900, gt=0, le=100000)
     capture_seconds: Optional[float] = Field(None, gt=0)
+    geometry: Optional[SamplingPlanRequest] = None
+
+
+class ForgettingRunRequest(BaseModel):
+    dry_run: bool = True
+    batch: int = Field(500, gt=0, le=5000)
 
 
 class CaptureSessionStatus(BaseModel):

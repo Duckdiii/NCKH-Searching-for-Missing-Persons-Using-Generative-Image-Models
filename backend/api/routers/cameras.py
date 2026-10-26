@@ -14,9 +14,20 @@ from backend.api.schemas import (
     CameraListResponse,
     CaptureSessionStatus,
     CaptureStartRequest,
+    SamplingPlanRequest,
 )
+from backend.api.sampling_policy import plan_from_dict
 
 router = APIRouter(prefix="/api", tags=["cameras"])
+
+
+@router.post("/cameras/sampling-plan")
+def sampling_plan_view(body: SamplingPlanRequest):
+    """Tính fps lấy mẫu từ hình học camera (không cần DB, không bật camera)."""
+    try:
+        return plan_from_dict(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 def _require_db() -> None:
@@ -63,10 +74,16 @@ def start_capture_view(camera_id: str, body: CaptureStartRequest):
 
         preprocess_on = bool(
             get_config().get("video_preprocess", {}).get("enabled", True))
+        plan = None
+        sample_fps = body.sample_fps
+        if body.geometry is not None:
+            plan = plan_from_dict(body.geometry.model_dump())
+            if sample_fps is None:
+                sample_fps = plan["fps"]
         started = cam_service.start_capture(
-            camera_id=camera_id, sample_fps=body.sample_fps,
+            camera_id=camera_id, sample_fps=sample_fps or 1.0,
             max_frames=body.max_frames, capture_seconds=body.capture_seconds,
-            preprocess_on=preprocess_on)
+            preprocess_on=preprocess_on, sampling_plan=plan)
     except repo.NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except (ValueError, ConnectionError) as exc:
