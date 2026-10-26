@@ -132,6 +132,8 @@ preprocessing. FAISS có thể dựng lại từ DB; lưu mapping FAISS ID → e
 | backend/api/gallery.py + retention.py | Index FAISS batch/delta/tombstone; retention/TTL/GC ledger |
 | backend/api/forgetting.py | Quên dần theo đường cong Ebbinghaus (củng cố, chất lượng, áp lực ổ), lược → quên qua ledger; xem docs/thuat-toan-quen-va-lay-mau.md |
 | backend/api/sampling_policy.py | Chọn fps camera từ góc nhìn/khoảng cách/tốc độ đi (phủ + bám vết + ngân sách GPU) |
+| backend/api/crop_quality.py | Chấm chất lượng ảnh mặt (7 thành phần, phạt vỡ khối/nhiễu, nhất quán danh tính); tracker giữ crop tốt nhất (rank 1 lưu trong detections.quality) |
+| backend/api/pipeline_optimizer.py | Tối ưu fps × số crop/tracklet × ngưỡng chất lượng (Monte Carlo, hiệu chuẩn calibration.json); xem docs/quy-trinh-toi-uu-camera.md |
 Session_id chỉ là mã tương quan vì session hiện nằm trong RAM. Thiết kế này chưa
 thêm bảng hồ sơ người mất tích hoặc kết quả đối soát; similarity không phải xác
 nhận danh tính và không làm thay đổi nguồn gốc của ảnh.

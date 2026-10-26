@@ -28,6 +28,8 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
+from backend.api import crop_quality as cq
+
 # --- Thông số khởi điểm cần đo (doc §4.2) ---
 CROP_MAX_LONG_EDGE = 256
 CROP_JPEG_QUALITY = 85
@@ -180,6 +182,10 @@ class Candidate:
     embedding: Optional[np.ndarray] = None
     observed_at: float = 0.0
     sha256: str = ""
+    # crop_quality: điểm chọn = quality × nhất quán danh tính (quality giữ nguyên để lưu).
+    consistency: float = 1.0
+    score: float = 0.0
+    quality_detail: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -198,6 +204,26 @@ class TrackState:
     slot_revision: int = 0
     last_checkpoint_monotonic: float = 0.0
     checkpoint_pending: bool = False
+    centroid: cq.IdentityCentroid = field(default_factory=cq.IdentityCentroid)
+    rejected_gate: int = 0
+    rejected_identity: int = 0
+
+
+def finalize_candidates(tr: TrackState) -> None:
+    """Xếp hạng lại ứng viên theo tâm danh tính CUỐI của tracklet (crop_quality).
+
+    Lúc chọn online, tâm chưa ổn định; khi đóng/checkpoint mới biết crop nào lệch
+    hẳn danh tính (tracker nhảy sang người khác, crop hỏng) → bỏ nếu còn ứng viên
+    khác. Ứng viên đầu danh sách là crop tốt nhất của tracklet.
+    """
+    for c in tr.candidates:
+        c.consistency = tr.centroid.consistency(c.embedding)
+        c.score = cq.selection_score(c.quality, c.consistency)
+    keep = [c for c in tr.candidates if c.consistency > cq.CONSIST_FLOOR]
+    if keep and len(keep) < len(tr.candidates):
+        tr.rejected_identity += len(tr.candidates) - len(keep)
+        tr.candidates = keep
+    tr.candidates.sort(key=lambda c: c.score, reverse=True)
 
 
 class CameraTracker:
@@ -358,6 +384,8 @@ class CameraTracker:
         ready = [tr for tr in self._tracks.values()
                  if tr.closed and tr.candidates]
         for tr in ready:
+            finalize_candidates(tr)
+        for tr in ready:
             del self._tracks[tr.local_id]
         return ready
 
@@ -368,6 +396,7 @@ class CameraTracker:
         for tr in self._tracks.values():
             if not tr.closed and tr.checkpoint_pending and tr.candidates:
                 tr.checkpoint_pending = False
+                finalize_candidates(tr)
                 out.append(tr)
         return out
 
@@ -385,6 +414,7 @@ class CameraTracker:
                 tr.closed = True
                 self._recently_closed.append((list(tr.last_bbox), now))
                 if tr.candidates:
+                    finalize_candidates(tr)
                     out.append(tr)
         return out
 
@@ -396,22 +426,31 @@ class CameraTracker:
         # Bỏ mặt quá nhỏ (không đủ khả năng nhận dạng, tiết kiệm crop).
         if area < 40 * 40:
             return
-        crop = copy_crop(frame_bgr, bbox)
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        blur = estimate_blur(gray)
-        exposure = estimate_exposure(gray)
-        frontal = estimate_frontal(face.get("kps"), bbox)
         det = float(face.get("det_score", 0.0))
-        quality = score_candidate(area, blur, exposure, frontal, det)
         emb = None
         if face.get("embedding") is not None:
             try:
                 emb = np.asarray(face["embedding"], dtype=np.float64)
             except Exception:
                 emb = None
-        cand = Candidate(crop_bgr=crop, quality=quality, blur=blur,
-                         exposure=exposure, frontal=frontal, face_area=area,
-                         det_score=det, bbox=bbox, embedding=emb, observed_at=t)
+        report = cq.assess_face(frame_bgr, bbox, kps=face.get("kps"), det_score=det,
+                                embedding_norm=face.get("embedding_norm"))
+        if report.gate:
+            # Nghiêng hẳn / bị cắt / landmark vô lý: không bao giờ là crop tốt.
+            tr.rejected_gate += 1
+            return
+        quality = report.total
+        tr.centroid.add(emb, quality)
+        consistency = tr.centroid.consistency(emb)
+        crop = copy_crop(frame_bgr, bbox)
+        cand = Candidate(crop_bgr=crop, quality=quality,
+                         blur=report.components.get("sharpness", 0.0),
+                         exposure=report.components.get("exposure", 0.0),
+                         frontal=report.components.get("pose", 0.5), face_area=area,
+                         det_score=det, bbox=bbox, embedding=emb, observed_at=t,
+                         consistency=consistency,
+                         score=cq.selection_score(quality, consistency),
+                         quality_detail=report.as_dict())
         # Lọc trùng byte trong tracklet (SHA-256 trên crop resize nhỏ).
         try:
             tiny = cv2.resize(crop, (32, 32), interpolation=cv2.INTER_AREA)
@@ -423,23 +462,23 @@ class CameraTracker:
         if len(tr.candidates) < MAX_CANDIDATES_PER_TRACKLET:
             # Thêm góc mới hữu ích hoặc chất lượng cao hơn.
             if self._is_novel_angle(tr, emb) or not tr.candidates \
-                    or quality > min(c.quality for c in tr.candidates):
+                    or cand.score > min(c.score for c in tr.candidates):
                 tr.candidates.append(cand)
                 if cand.sha256:
                     tr.seen_hashes.add(cand.sha256)
-                tr.candidates.sort(key=lambda c: c.quality, reverse=True)
+                tr.candidates.sort(key=lambda c: c.score, reverse=True)
                 tr.candidates = tr.candidates[:MAX_CANDIDATES_PER_TRACKLET]
             return
         # Đã đủ 3: chỉ thay khi tốt hơn đáng kể hoặc góc mới hữu ích.
-        worst = min(tr.candidates, key=lambda c: c.quality)
+        worst = min(tr.candidates, key=lambda c: c.score)
         is_novel = self._is_novel_angle(tr, emb)
-        if quality > worst.quality + REPLACE_QUALITY_MARGIN or (
-                is_novel and quality > worst.quality):
+        if cand.score > worst.score + REPLACE_QUALITY_MARGIN or (
+                is_novel and cand.score > worst.score):
             tr.candidates.remove(worst)
             tr.candidates.append(cand)
             if cand.sha256:
                 tr.seen_hashes.add(cand.sha256)
-            tr.candidates.sort(key=lambda c: c.quality, reverse=True)
+            tr.candidates.sort(key=lambda c: c.score, reverse=True)
 
     def _is_novel_angle(self, tr: TrackState, emb: Optional[np.ndarray]) -> bool:
         if emb is None or not tr.candidates:

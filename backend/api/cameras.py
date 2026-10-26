@@ -356,13 +356,17 @@ def _persist_ready_tracklets(session: dict, tracks: list, *, force_note: str = "
             continue
         # Chuyển Candidate RAM -> dict persist (crop_bgr đã là bản copy).
         cands = []
-        for c in sorted(tr.candidates, key=lambda x: x.quality, reverse=True):
+        # Thứ tự đã do finalize_candidates xếp (quality × nhất quán danh tính):
+        # phần tử đầu là crop tốt nhất của tracklet.
+        for rank, c in enumerate(tr.candidates, start=1):
             cands.append({
                 "crop_bgr": c.crop_bgr, "bbox": list(c.bbox),
                 "det_score": float(c.det_score), "quality": float(c.quality),
                 "blur": float(c.blur), "exposure": float(c.exposure),
                 "frontal": float(c.frontal), "face_area": float(c.face_area),
                 "embedding": c.embedding, "kps": None,
+                "selection_rank": rank, "selection_score": float(c.score),
+                "consistency": float(c.consistency), "quality_detail": c.quality_detail,
             })
         # Frame đại diện: dùng bbox tốt nhất để suy kích thước nguồn; offset 0
         # vì tracklet gom nhiều frame (timeline thể hiện qua tracklet times).

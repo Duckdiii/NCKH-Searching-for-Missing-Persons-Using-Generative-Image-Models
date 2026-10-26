@@ -155,12 +155,17 @@ def detect_faces_in_frame(
         if det < MIN_DET_SCORE:
             continue
         emb = getattr(face, "normed_embedding", None)
+        raw_emb = getattr(face, "embedding", None)
+        kps = getattr(face, "kps", None)
         faces.append(
             {
                 "bbox_orig": [float(v) / scale for v in face.bbox],
                 "det_score": det,
                 "embedding": np.asarray(emb, dtype=np.float64) if emb is not None else None,
-                "kps": getattr(face, "kps", None),
+                # kps cùng hệ tọa độ frame gốc với bbox (crop_quality đo góc mặt/IOD).
+                "kps": (np.asarray(kps, dtype=np.float64) / scale) if kps is not None else None,
+                # Norm embedding CHƯA chuẩn hóa: tín hiệu khả năng nhận dạng (FIQA).
+                "embedding_norm": float(np.linalg.norm(raw_emb)) if raw_emb is not None else None,
             }
         )
     return faces, conditions, original
@@ -284,6 +289,12 @@ def persist_camera_tracklet(
                        "frontal": float(cand.get("frontal", 0.5)),
                        "face_area": float(cand.get("face_area", 0.0)),
                        "policy": "crop_only"}
+            if cand.get("quality_detail"):
+                # crop_quality: rank 1 = crop tốt nhất tracklet; chi tiết để truy vết.
+                quality.update(selection_rank=int(cand.get("selection_rank", 0)),
+                               selection_score=float(cand.get("selection_score", 0.0)),
+                               consistency=float(cand.get("consistency", 1.0)),
+                               fiqa=cand["quality_detail"])
             try:
                 detection_id = repo.create_detection(
                     conn, purpose="search", frame_id=frame_id,

@@ -277,6 +277,15 @@ class SamplingPlanRequest(BaseModel):
     people_per_hour: Optional[float] = Field(None, gt=0)
 
 
+class PipelineOptimizeRequest(SamplingPlanRequest):
+    """Tối ưu fps × số crop/tracklet × ngưỡng chất lượng (backend/api/pipeline_optimizer.py)."""
+    storage_bytes: Optional[float] = Field(None, gt=0)
+    hours_per_day: float = Field(12.0, gt=0, le=24)
+    rho: float = Field(0.6, ge=0, le=1)
+    near_best: float = Field(0.99, gt=0, le=1)
+    include_grid: bool = False
+
+
 class CaptureStartRequest(BaseModel):
     # None + có geometry → tự chọn fps theo sampling_policy; None + không geometry → 1.0.
     sample_fps: Optional[float] = Field(None, gt=0, le=10)

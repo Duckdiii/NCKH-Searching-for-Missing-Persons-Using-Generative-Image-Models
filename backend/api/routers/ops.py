@@ -7,6 +7,7 @@
 - POST /api/ops/retention/orphans: orphan GC (grace, dry_run mặc định true).
 - GET /api/ops/forgetting/schedule: lịch quên theo số ngày xuất hiện/chất lượng.
 - POST /api/ops/forgetting/plan: kế hoạch quên dần (không xóa).
+- POST /api/ops/pipeline/optimize: chọn fps × số crop × ngưỡng chất lượng tối ưu.
 - POST /api/ops/forgetting/run: thực thi (dry_run mặc định; quên thật cần
   FORGETTING_ENABLED=true), xóa qua deletion_ledger → retention/gc.
 """
@@ -19,7 +20,12 @@ from backend.api import forgetting as fg
 from backend.api import retention as ret
 from backend.api.database import get_pool
 from backend.api.persistence import db_ping
-from backend.api.schemas import ForgettingRunRequest, GCRunRequest, RetentionPolicyUpdate
+from backend.api.schemas import (
+    ForgettingRunRequest,
+    GCRunRequest,
+    PipelineOptimizeRequest,
+    RetentionPolicyUpdate,
+)
 from backend.api.storage import get_storage
 
 router = APIRouter(prefix="/api/ops", tags=["ops"])
@@ -149,3 +155,18 @@ def forgetting_run_view(body: ForgettingRunRequest):
                     **fg.apply_forgetting(conn, plan, dry_run=body.dry_run)}
         except PermissionError as exc:
             raise HTTPException(status_code=403, detail=str(exc))
+
+
+@router.post("/pipeline/optimize")
+def pipeline_optimize_view(body: PipelineOptimizeRequest):
+    """Không cần DB: mô phỏng Monte Carlo, dùng outputs/eval_crop/calibration.json nếu có."""
+    from backend.api import pipeline_optimizer as po
+    d = body.model_dump()
+    include_grid = d.pop("include_grid")
+    try:
+        res = po.optimize_from_dict(d)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not include_grid:
+        res.pop("grid", None)
+    return res

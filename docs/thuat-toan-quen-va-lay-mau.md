@@ -8,6 +8,8 @@ Hai thuật toán bổ sung cho luồng camera crop-only
 | Lấy mẫu | Mỗi giây nên phân tích bao nhiêu khung? | `backend/api/sampling_policy.py` | `POST /api/cameras/sampling-plan`; `POST /api/cameras/{id}/start` với `geometry` |
 | Quên dần | Sau bao lâu thì máy quên một người? | `backend/api/forgetting.py` | `GET /api/ops/forgetting/schedule`, `POST /api/ops/forgetting/plan`, `POST /api/ops/forgetting/run` |
 
+Quy trình ghép cả hai với chọn crop và tối ưu số crop/tracklet: [quy-trinh-toi-uu-camera.md](quy-trinh-toi-uu-camera.md).
+
 Mọi hằng số mặc định là **giả định khởi điểm**, cần hiệu chuẩn bằng dữ liệu camera thật
 (đặc biệt `usable_ratio` và các tham số quên).
 
