@@ -20,6 +20,25 @@ Ghi lại trạng thái và các lỗi đã gặp khi chạy demo FE + BE trên 
 Port và IP **đổi mỗi lần tạo/mở lại instance** — lấy lệnh mới ở nút **Connect** trên vast.
 Nếu instance đã bị destroy, `/workspace` mất hết (không phải volume) → làm lại từ bước 1 bên dưới.
 
+## Lần triển khai 2026-10-29 (RTX PRO 5000 Blackwell 48GB)
+
+| Hạng mục | Giá trị |
+|---|---|
+| SSH proxy (ổn định) | `ssh -p 33571 root@ssh3.vast.ai` |
+| SSH trực tiếp | `ssh -p 39745 root@80.188.223.200` |
+| torch / CUDA | 2.14.1 + CUDA 13.0 → onnxruntime-gpu **1.31** (không phải 1.22) |
+| Venv | Trống lúc đầu → cài đủ bằng `setup.sh` (đã sửa: chọn ORT theo CUDA, setuptools<80, lpips) |
+| Checkpoint UNet | Tải từ Drive trên máy vast (`specialized_unet_v3_v2_600samples.zip`, lấy `final`), sha256 khớp local `a5a79c47…` |
+| MiVOLO | **File trên Drive rỗng 0 byte** → upload từ máy local |
+| Upload từ nhà | Rất chậm (~0.27MB/s qua proxy) → chỉ upload gói code 9MB (`outputs/nckh_vast_code.tar`) |
+| CodeFormer | Chạy được (thiếu `lpips` là nguyên nhân lỗi từ trước tới nay) |
+| Kết quả chạy thử | FADING ~60s/job; 8 camera đúng [1, 3, 5, 6]; mọi công cụ chạy |
+
+Lỗi lộ ra lần này (đã sửa trong code):
+- CodeFormer phóng ảnh ×4 nhưng landmark không nhân theo → crop cắt nhầm góc ảnh (tóc/trời) → FADING không thấy mặt.
+- `Candidate` dataclass so sánh cả mảng crop → `list.remove()` lỗi khi thay crop lúc tracklet đã đủ K.
+- Phơi sáng lấy tâm 125 → ảnh bị làm tối được xếp trên ảnh gốc sáng.
+
 ## Lần sau: mở lại demo (instance vẫn còn)
 
 1. **Tắt bản local** trên máy Windows (app desktop / `run_desktop.py`) — chúng chiếm cổng 1420/8000
