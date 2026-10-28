@@ -202,7 +202,7 @@ def query_gallery_view(body: GalleryQueryRequest):
                 source_of = {r[0]: r[1] for r in cur.fetchall()}
             hits = [h for h in hits
                     if source_of.get(h["crop_id"]) == body.scope_source_id]
-        hits = hits[:body.top_k]
+        hits = gallery_service.keep_available(conn, hits, limit=body.top_k)
         run_id = repo.create_search_run(
             conn, query_kind=query_kind, query_crop_id=query_crop_id,
             scope_source_id=body.scope_source_id,

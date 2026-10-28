@@ -10,6 +10,7 @@ from src.utils.cancellation import checkpoint
 def search_generated_job(job_id, variants, edited_images, *, top_k=5, threshold=0.6):
     model, version, preproc = gallery.current_embed_triple()
     snapshot = gallery.rebuild_gallery()
+    storage = get_storage()
     best = {}
     age_scores = {}
     embeddings = []
@@ -23,7 +24,10 @@ def search_generated_job(job_id, variants, edited_images, *, top_k=5, threshold=
             raise ValueError("Embedding ảnh tạo sinh không hợp lệ")
         vector = vector / norm
         embeddings.append((variant['id'], vector.tolist()))
-        hits = gallery.search_gallery(vector, k=top_k)
+        # Lấy dư rồi bỏ crop mất file (ảnh lưu ở máy khác dùng chung DB).
+        hits = gallery.search_gallery(vector, k=top_k * 4)
+        with get_pool().connection() as conn:
+            hits = gallery.keep_available(conn, hits, limit=top_k, storage=storage)
         age_scores[age] = max((h['score'] for h in hits), default=0.0)
         for hit in hits:
             score = float(np.clip(hit['score'], -1, 1))
@@ -54,4 +58,4 @@ def search_generated_job(job_id, variants, edited_images, *, top_k=5, threshold=
         'top_identity': top['crop_id'] if top else '',
         'top_score': top['score'] if top else 0.0,
         'best_age': top['age'] if top else None, 'age_scores': age_scores,
-        'matched_gallery_image': get_storage().get_access_url(detail['results'][0]['crop_key']) if top else None}
+        'matched_gallery_image': storage.get_access_url(detail['results'][0]['crop_key']) if top else None}

@@ -276,3 +276,33 @@ def test_supabase_signs_batch_in_one_request(monkeypatch):
 
 def test_migration_009_discovered():
     assert "009" in {version for version, _ in discover_migrations()}
+
+
+def test_keep_available_drops_crops_without_file(monkeypatch):
+    from backend.api import gallery
+
+    monkeypatch.setattr(gallery, "_FILE_STATE", {})
+
+    class Conn(FakeConn):
+        def cursor(self):
+            conn = self
+
+            class Cur(FakeCursor):
+                def fetchall(self):
+                    return [("c1", "search/crops/a.jpg"), ("c2", "search/crops/b.jpg"),
+                            ("c3", "search/crops/c.jpg")]
+            return Cur(conn)
+
+    class Store:
+        calls = []
+
+        def exists(self, key):
+            self.calls.append(key)
+            return key != "search/crops/b.jpg"  # b nằm ở máy khác
+
+    store = Store()
+    hits = [{"crop_id": c, "score": s} for c, s in (("c2", .9), ("c1", .8), ("c3", .7), ("c9", .6))]
+    kept = gallery.keep_available(Conn(), hits, limit=2, storage=store)
+    assert [h["crop_id"] for h in kept] == ["c1", "c3"]  # bỏ c2 (mất file), c9 (không có asset)
+    gallery.keep_available(Conn(), hits, storage=store)
+    assert len(store.calls) == 3  # lần 2 dùng kết quả đã nhớ

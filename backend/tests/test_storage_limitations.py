@@ -97,6 +97,7 @@ def test_generated_job_ensembles_and_persists_lineage():
     with patch('backend.api.job_search.get_pool',return_value=pool), \
          patch('backend.api.job_search.get_embedder') as emb, \
          patch('backend.api.job_search.gallery.rebuild_gallery',return_value={'key':'snapshot'}), \
+         patch('backend.api.job_search.gallery.keep_available',side_effect=lambda conn,hits,limit=None,storage=None: hits[:limit]), \
          patch('backend.api.job_search.gallery.search_gallery',side_effect=[
              [{'crop_id':'c1','score':.7},{'crop_id':'c2','score':.5}],
              [{'crop_id':'c1','score':.9},{'crop_id':'c2','score':.4}]]), \

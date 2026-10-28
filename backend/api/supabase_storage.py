@@ -136,6 +136,10 @@ class SupabaseMediaStorage(MediaStorage):
             raise FileNotFoundError(key)
         self._request('DELETE', 'object/' + quote(self.bucket, safe=''), json={'prefixes': [validate_storage_key(key)]})
 
+    def exists(self, key):
+        # Như open/get_access_url: file cũ còn trên đĩa local vẫn tính là có.
+        return super().exists(key) or self.legacy.exists(key)
+
     def _exists(self, key):
         try:
             self._request('GET', 'object/info/authenticated/' + self._path(key))

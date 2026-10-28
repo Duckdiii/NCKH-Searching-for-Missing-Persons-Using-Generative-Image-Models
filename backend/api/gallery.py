@@ -560,6 +560,45 @@ def _delta_search(delta: dict, query: np.ndarray, k: int) -> list[dict]:
     return out
 
 
+# Kết quả kiểm tra file theo storage_key (file mất không tự quay lại; file có
+# chỉ bị xóa qua ledger) → nhớ trong process để không hỏi storage lặp lại.
+_FILE_STATE: dict[str, bool] = {}
+
+
+def keep_available(conn, hits: list[dict], *, limit: Optional[int] = None,
+                   storage=None) -> list[dict]:
+    """Bỏ hit có crop mất file (DB dùng chung nhiều máy, file ở storage máy khác).
+
+    1 query lấy storage_key, kiểm tra tồn tại song song; giữ thứ tự điểm.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from backend.api.storage import get_storage
+
+    if not hits:
+        return []
+    storage = storage or get_storage()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT c.id::text, a.storage_key FROM face_media.face_crops c
+            JOIN face_media.assets a ON a.id = c.asset_id
+            WHERE c.id = ANY(%s)
+            """,
+            ([h["crop_id"] for h in hits],))
+        key_of = {r[0]: r[1] for r in cur.fetchall()}
+    unknown = [k for k in dict.fromkeys(key_of.values()) if k not in _FILE_STATE]
+    if unknown:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for key, ok in zip(unknown, pool.map(storage.exists, unknown)):
+                _FILE_STATE[key] = bool(ok)
+    kept = [h for h in hits
+            if key_of.get(str(h["crop_id"])) and _FILE_STATE.get(key_of[str(h["crop_id"])])]
+    if len(kept) < len(hits):
+        logger.info("gallery: bỏ %d crop mất file", len(hits) - len(kept))
+    return kept[:limit] if limit is not None else kept
+
+
 def search_gallery(
     query_vector: np.ndarray, *, k: int = 5, snapshot_key_: Optional[str] = None,
     include_delta: bool = True,
