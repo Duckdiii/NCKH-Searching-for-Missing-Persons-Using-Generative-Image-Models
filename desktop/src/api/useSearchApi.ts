@@ -10,6 +10,9 @@ import {
   UploadResponse,
 } from '../types/api';
 
+// Request select-face đang chạy theo (phiên, khuôn mặt) — dùng chung giữa các lần render.
+const inflightSelectFace = new Map<string, Promise<SelectFaceResponse>>();
+
 export function useSearchApi() {
   const checkHealth = useCallback(async () => {
     const s = useSearchStore.getState();
@@ -55,13 +58,27 @@ export function useSearchApi() {
   }, []);
 
   const selectFace = useCallback(async (sessionId: string, selectedIdx: number) => {
-    const s = useSearchStore.getState();
-    const res = await api.post<SelectFaceResponse>(`/api/sessions/${sessionId}/select-face`, {
-      selected_idx: selectedIdx,
-    });
-    if (useSearchStore.getState().sessionId === sessionId)
-      s.setSelectedFace(selectedIdx, res.data.warnings, res.data.cropped_preview_url);
-    return res.data;
+    // select-face chạy CodeFormer (vài giây–vài chục giây). FaceSelector tự gọi lại khi
+    // ảnh load/render lại → nhiều request trùng chạy song song, quá tải CPU backend.
+    // Gọi trùng khi request trước còn chạy thì dùng lại chính request đó.
+    const key = `${sessionId}:${selectedIdx}`;
+    const pending = inflightSelectFace.get(key);
+    if (pending) return pending;
+    const run = (async () => {
+      const s = useSearchStore.getState();
+      const res = await api.post<SelectFaceResponse>(`/api/sessions/${sessionId}/select-face`, {
+        selected_idx: selectedIdx,
+      });
+      if (useSearchStore.getState().sessionId === sessionId)
+        s.setSelectedFace(selectedIdx, res.data.warnings, res.data.cropped_preview_url);
+      return res.data;
+    })();
+    inflightSelectFace.set(key, run);
+    try {
+      return await run;
+    } finally {
+      inflightSelectFace.delete(key);
+    }
   }, []);
 
   const resolveAge = useCallback(

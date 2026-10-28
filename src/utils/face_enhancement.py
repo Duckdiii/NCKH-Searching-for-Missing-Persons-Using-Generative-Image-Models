@@ -10,6 +10,8 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import uuid
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import cv2
@@ -313,10 +315,15 @@ def apply_white_balance_from_point(
     return out_rgb
 
 
+# Mỗi lần gọi sinh 1 tiến trình Python (nạp torch + model trên CPU vài giây rồi mới
+# lên GPU). Gọi song song → CPU quá tải, GPU vẫn rảnh. Chỉ có 1 GPU nên chạy tuần tự.
+_CODEFORMER_LOCK = threading.Lock()
+
+
 def run_codeformer(
     image_rgb: np.ndarray,
     fidelity_weight: float = 0.7,
-    unique_tag: str = "temp",
+    unique_tag: Optional[str] = None,
     temp_dir: str = "./outputs/temp_codeformer"
 ) -> np.ndarray:
     """Bước 3: Chạy CodeFormer inference trên 1 ảnh RGB (mặc định w=0.7).
@@ -331,8 +338,11 @@ def run_codeformer(
     if not codeformer_script or not os.path.exists(codeformer_script):
         return image_rgb
 
-    in_dir = os.path.join(temp_dir, f"in_{unique_tag}")
-    out_dir = os.path.join(temp_dir, f"out_{unique_tag}")
+    # Thư mục tạm RIÊNG mỗi lần gọi: dùng chung (mặc định cũ "temp") thì các lần chạy
+    # song song ghi đè input.png của nhau và có thể trả về ảnh của lần khác.
+    tag = unique_tag or uuid.uuid4().hex
+    in_dir = os.path.join(temp_dir, f"in_{tag}")
+    out_dir = os.path.join(temp_dir, f"out_{tag}")
     os.makedirs(in_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
 
@@ -347,7 +357,8 @@ def run_codeformer(
             "-o", out_dir,
             "--face_upsample"
         ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        with _CODEFORMER_LOCK:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
         if proc.returncode != 0:
             return image_rgb
 
