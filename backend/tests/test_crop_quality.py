@@ -237,3 +237,17 @@ def test_noise_is_not_mistaken_for_sharpness():
     b = cq.assess_face(noisy, bbox, kps=k)
     assert b.noise_sigma > a.noise_sigma
     assert b.components["sharpness"] < a.components["sharpness"]
+
+
+def test_tracker_replaces_worst_when_full_with_different_crop_sizes():
+    """Mặt to dần (đi tới camera): crop sau tốt hơn, khác kích thước → phải thay được."""
+    tracker = ct.CameraTracker(max_candidates=2)
+    frame = _textured()
+    emb = np.ones(512) / np.sqrt(512)
+    for i, size in enumerate((60, 70, 80, 95, 110, 130)):
+        bbox, k = _face_at(100 - size / 4, 60 - size / 8, size=size)
+        tracker.update(frame, [_face_dict(bbox, k, emb=emb)], now=i * 0.2)
+    tr = tracker.open_tracks()[0]
+    assert len(tr.candidates) == 2
+    sizes = sorted(c.crop_bgr.shape[0] for c in tr.candidates)
+    assert sizes[-1] > 100        # crop lớn (tốt) mới vào đã thay crop nhỏ cũ

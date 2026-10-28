@@ -159,6 +159,13 @@ def preprocess_face_image(
 
     # Bước 3: Phục hồi CodeFormer
     cf_rgb = run_codeformer(wb_rgb, fidelity_weight=fidelity_weight)
+    # CodeFormer có thể phóng to ảnh (vd 256 → 1024, --upscale): landmark phải theo cùng
+    # tỷ lệ, nếu không align_to_ffhq cắt nhầm một góc ảnh (mặt "biến mất"). Giữ ảnh lớn
+    # vì align về 512px dùng được nhiều chi tiết hơn.
+    in_h, in_w = wb_rgb.shape[:2]
+    out_h, out_w = cf_rgb.shape[:2]
+    if new_kps is not None and (out_h, out_w) != (in_h, in_w):
+        new_kps = new_kps * np.array([out_w / in_w, out_h / in_h], dtype=np.float64)
     preprocessed_bgr = cv2.cvtColor(cf_rgb, cv2.COLOR_RGB2BGR)
     return preprocessed_bgr, new_kps
 

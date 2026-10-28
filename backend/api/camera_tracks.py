@@ -171,7 +171,9 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-@dataclass
+# eq=False: so sánh theo đối tượng. __eq__ tự sinh sẽ so cả mảng crop_bgr → ValueError khi
+# list.remove() gặp crop khác kích thước (nhánh thay crop khi tracklet đã đủ K).
+@dataclass(eq=False)
 class Candidate:
     crop_bgr: np.ndarray  # bản copy, không view frame
     quality: float
@@ -494,7 +496,7 @@ class CameraTracker:
         is_novel = self._is_novel_angle(tr, emb)
         if cand.score > worst.score + REPLACE_QUALITY_MARGIN or (
                 is_novel and cand.score > worst.score):
-            tr.candidates.remove(worst)
+            tr.candidates = [c for c in tr.candidates if c is not worst]
             tr.candidates.append(cand)
             if cand.sha256:
                 tr.seen_hashes.add(cand.sha256)
