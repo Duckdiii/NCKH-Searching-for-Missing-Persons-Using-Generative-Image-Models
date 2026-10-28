@@ -39,7 +39,7 @@ interface SearchState {
   isHistoricalView: boolean;
   currentWizardStep: 'restore' | 'generate' | 'results';
   // Tab chính: tìm kiếm/sinh ảnh hoặc 8 camera phát lại video (chỉ mở khi đã có ảnh tạo sinh).
-  mainView: 'search' | 'cameras';
+  mainView: 'search' | 'cameras' | 'tools';
 
   // Session state
   sessionId: string | null;
@@ -83,7 +83,7 @@ interface SearchState {
   toggleSidebar: () => void;
   setSidebarCollapsed: (val: boolean) => void;
   setCurrentWizardStep: (step: 'restore' | 'generate' | 'results') => void;
-  setMainView: (view: 'search' | 'cameras') => void;
+  setMainView: (view: 'search' | 'cameras' | 'tools') => void;
   addHistoryItem: (item: JobHistoryItem) => void;
   loadHistoricalJob: (item: JobHistoryItem) => void;
   removeSessionHistory: (sessionId: string) => void;
