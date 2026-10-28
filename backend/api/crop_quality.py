@@ -55,6 +55,8 @@ BLOCK_OK, BLOCK_BAD = 2.0, 6.0
 # Nhiễu cảm biến (σ Immerkær): ảnh rõ ~0.5; camera thiếu sáng 5–20. Nhiễu cũng bị đo
 # mờ hiểu nhầm là chi tiết → phạt độ nét từ σ = 3, về 0 ở σ = 15.
 NOISE_OK, NOISE_BAD = 3.0, 15.0
+# Phơi sáng: độ sáng TB vùng mặt trong [70, 200] là đủ sáng (không phạt).
+EXPOSURE_DARK, EXPOSURE_BRIGHT = 70.0, 200.0
 _IMMERKAER = np.array([[1, -2, 1], [-2, 4, -2], [1, -2, 1]], dtype=np.float64)
 # Mặt chính diện theo template ArcFace: mũi nằm ~49% từ đường mắt tới đường miệng.
 PITCH_CENTER = 0.49
@@ -142,10 +144,18 @@ def exposure_score(gray: np.ndarray) -> float:
         return 0.0
     g = gray.astype(np.float64)
     mean, std = float(g.mean()), float(g.std())
-    clipped = float(((g < 12) | (g > 243)).mean())
-    return (math.exp(-((mean - 125.0) / 70.0) ** 2)
-            * math.sqrt(min(1.0, std / 40.0))
-            * (1.0 - min(1.0, clipped / 0.3)))
+    clipped = float(((g < 6) | (g > 249)).mean())
+    # Dải sáng chấp nhận được: da đủ sáng ~150–200 KHÔNG bị phạt (bản cũ lấy tâm 125
+    # nên chấm ảnh tối cao hơn ảnh gốc sáng). Chỉ phạt khi quá tối / quá sáng.
+    if mean < EXPOSURE_DARK:
+        level = math.exp(-((EXPOSURE_DARK - mean) / 35.0) ** 2)
+    elif mean > EXPOSURE_BRIGHT:
+        level = math.exp(-((mean - EXPOSURE_BRIGHT) / 25.0) ** 2)
+    else:
+        level = 1.0
+    return (level
+            * math.sqrt(min(1.0, std / 35.0))            # tương phản thấp (tối, mờ sương)
+            * (1.0 - min(1.0, clipped / 0.25)))          # cháy sáng / đen kịt
 
 
 def truncation(bbox: list[float], frame_shape: tuple) -> float:

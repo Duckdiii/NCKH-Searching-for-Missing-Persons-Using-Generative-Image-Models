@@ -251,3 +251,12 @@ def test_tracker_replaces_worst_when_full_with_different_crop_sizes():
     assert len(tr.candidates) == 2
     sizes = sorted(c.crop_bgr.shape[0] for c in tr.candidates)
     assert sizes[-1] > 100        # crop lớn (tốt) mới vào đã thay crop nhỏ cũ
+
+
+def test_well_lit_face_beats_darkened_copy_on_exposure():
+    """Da đủ sáng (~180) không bị phạt; bản làm tối (×0.35) phải bị chấm thấp hơn."""
+    rng = np.random.default_rng(5)
+    bright = np.clip(rng.normal(180, 40, (80, 80)), 0, 255).astype(np.uint8)
+    dark = (bright * 0.35).astype(np.uint8)
+    assert cq.exposure_score(bright) > 0.8
+    assert cq.exposure_score(bright) > cq.exposure_score(dark) + 0.2
