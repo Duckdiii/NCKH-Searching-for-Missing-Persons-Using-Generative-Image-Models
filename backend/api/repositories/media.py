@@ -113,8 +113,10 @@ def create_source(
         raise PurposeError("Nguồn reference chỉ được là ảnh (kind='image').")
     if storage_policy not in ("full", "crop_only"):
         raise ValueError(f"storage_policy không hợp lệ: {storage_policy!r}.")
-    if storage_policy == "crop_only" and not (purpose == "search" and kind == "camera"):
-        raise ValueError("storage_policy='crop_only' chỉ cho nguồn search/camera.")
+    if storage_policy == "crop_only" and not (purpose == "search" and kind in ("camera", "video")):
+        raise ValueError("storage_policy='crop_only' chỉ cho nguồn search/camera hoặc search/video.")
+    if kind in ("image", "video") and original_asset_id is None and storage_policy != "crop_only":
+        raise ValueError("Nguồn ảnh/video cần original_asset_id (trừ video crop_only).")
     source_id = source_id or new_id()
     try:
         with conn.cursor() as cur:
@@ -418,3 +420,65 @@ def get_crop_purpose(conn, crop_id: str) -> str:
 
         raise NotFoundError(f"Crop không tồn tại: {crop_id}")
     return row[0]
+
+
+# ---------------------------------------------------------- batch insert ---
+_BATCH_SQL = (
+    ("assets", """
+        INSERT INTO face_media.assets
+            (id, storage_key, media_type, mime_type, sha256,
+             byte_size, width, height)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """),
+    ("frames", """
+        INSERT INTO face_media.frames
+            (id, purpose, source_id, asset_id, frame_index, offset_ms,
+             captured_at, source_width, source_height)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """),
+    ("detections", """
+        INSERT INTO face_media.face_detections
+            (id, purpose, frame_id, detector_name, detector_version,
+             run_id, face_index, x1, y1, x2, y2, confidence,
+             landmarks, track_id, quality)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s::jsonb, %s, %s::jsonb)
+        """),
+    ("crops", """
+        INSERT INTO face_media.face_crops
+            (id, purpose, detection_id, asset_id, method,
+             preprocessing, transform_to_source)
+        VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+        """),
+    ("embeddings", """
+        INSERT INTO face_media.face_embeddings
+            (id, crop_id, generated_image_id, model_name, model_version,
+             preprocessing_version, dimensions, "values", normalized)
+        VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
+        """),
+)
+
+
+def insert_observation_batch(conn, rows: dict[str, list[tuple]]) -> dict[str, int]:
+    """Ghi cả lô assets → frames → detections → crops → embeddings theo thứ tự FK.
+
+    Mỗi bảng một ``executemany`` (psycopg3 gom qua pipeline: ~1 round-trip/bảng
+    thay vì 1/hàng). Không commit: caller giữ transaction để lỗi giữa chừng
+    rollback toàn bộ. Hàng đã được kiểm tra ở bước lập lô (cùng luật create_*).
+    """
+    counts: dict[str, int] = {}
+    with conn.cursor() as cur:
+        for table, sql in _BATCH_SQL:
+            batch = rows.get(table) or []
+            if batch:
+                try:
+                    cur.executemany(sql, batch)
+                except Exception as exc:
+                    if _unique_violation(exc):
+                        raise ConflictError(f"Trùng khóa khi ghi lô {table}.") from exc
+                    if _fk_violation(exc):
+                        raise ValueError(f"FK/purpose không khớp khi ghi lô {table}.") from exc
+                    raise
+            counts[table] = len(batch)
+    return counts

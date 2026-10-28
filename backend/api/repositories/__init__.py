@@ -47,6 +47,7 @@ from .media import (
     create_frame,
     create_source,
     get_crop_purpose,
+    insert_observation_batch,
     new_id,
 )
 from .search import (
@@ -98,6 +99,7 @@ __all__ = [
     "delete_exemplar",
     "get_camera",
     "get_crop_purpose",
+    "insert_observation_batch",
     "get_exemplars",
     "get_identity",
     "get_ingestion_run",

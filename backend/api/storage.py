@@ -146,6 +146,15 @@ class MediaStorage(ABC):
         except Exception:
             pass
 
+    def delete_many_quiet(self, keys) -> None:
+        """Dọn nhiều file (rollback upload). Adapter mạng ghi đè để gom 1 request."""
+        for key in keys:
+            self.delete_quiet(key)
+
+    def get_access_urls(self, keys) -> dict[str, str]:
+        """URL cho nhiều key. Adapter mạng ghi đè để ký 1 request thay vì N."""
+        return {key: self.get_access_url(key) for key in dict.fromkeys(keys)}
+
     def exists(self, key: str) -> bool:
         try:
             validate_storage_key(key)

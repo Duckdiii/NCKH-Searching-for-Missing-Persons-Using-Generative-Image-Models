@@ -18,6 +18,7 @@ import tempfile
 import threading
 import uuid
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, BinaryIO, Iterator, Optional
 
 import cv2
@@ -30,6 +31,8 @@ MAX_FRAMES = 90
 DETECT_MAX_DIM = 960
 MIN_DET_SCORE = 0.3
 TOP_KEEP = 20
+# Số luồng tải crop song song (storage mạng: mỗi request chờ ~RTT).
+UPLOAD_WORKERS = max(1, int(os.environ.get("INGEST_UPLOAD_WORKERS", "8")))
 
 _EMBEDDER_LOCK = threading.Lock()
 
@@ -403,6 +406,185 @@ def persist_camera_tracklet(
             "detections": detections}
 
 
+class ObservationBatch:
+    """Gom quan sát của nhiều frame: tải ảnh song song, ghi DB một lượt.
+
+    ``add_frame`` gọi ngay sau mỗi lần detect — JPEG được đẩy lên storage ở
+    thread nền trong khi GPU detect frame tiếp. ``flush(conn)`` chờ upload xong
+    rồi ghi mọi hàng bằng executemany theo bảng trong transaction của ``conn``
+    (thay cho ~6 query/mặt lần lượt). Lỗi ở bất kỳ bước nào → ``discard()`` xóa
+    file đã tải để không mồ côi.
+
+    ``store_frames=False`` (đối soát video): chỉ lưu crop mặt — frame thành hàng
+    metadata-only (asset_id NULL + kích thước nguồn), frame không có mặt bỏ qua.
+    """
+
+    def __init__(
+        self, storage, *, source_id: str, purpose: str,
+        detector_name: str, detector_version: str, run_id: str,
+        store_frames: bool = True, min_det_score: float = MIN_DET_SCORE,
+        workers: Optional[int] = None,
+    ) -> None:
+        from backend.api.repositories import validation as v
+
+        v.require_purpose(purpose, ("reference", "search"))
+        v.check_model_meta(detector_name, detector_version)
+        if not store_frames and purpose != "search":
+            raise ValueError("Chỉ luồng search được bỏ lưu frame (crop-only).")
+        self.storage = storage
+        self.source_id = source_id
+        self.purpose = purpose
+        self.detector_name = detector_name
+        self.detector_version = detector_version
+        self.run_id = run_id
+        self.store_frames = store_frames
+        self.min_det_score = min_det_score
+        self.rows: dict[str, list[tuple]] = {
+            "assets": [], "frames": [], "detections": [], "crops": [],
+            "embeddings": [],
+        }
+        self.events: list[dict] = []
+        self._uploads: list[tuple[str, Any]] = []
+        self._executor = ThreadPoolExecutor(
+            max_workers=workers or UPLOAD_WORKERS,
+            thread_name_prefix="ingest-upload")
+        self._triple: Optional[tuple[str, str, str]] = None
+
+    @property
+    def keys(self) -> list[str]:
+        return [key for key, _ in self._uploads]
+
+    def _add_asset(self, data: bytes, prefix: str, width: int, height: int) -> tuple[str, str]:
+        from backend.api.storage import build_key, sha256_bytes
+
+        asset_id = str(uuid.uuid4())
+        key = build_key(prefix, asset_id, "image/jpeg")
+        self.rows["assets"].append(
+            (asset_id, key, "image", "image/jpeg", sha256_bytes(data),
+             len(data), int(width), int(height)))
+        future = self._executor.submit(
+            self.storage.put_bytes, data, key, mime_type="image/jpeg")
+        self._uploads.append((key, future))
+        return asset_id, key
+
+    def _embed_triple(self) -> tuple[str, str, str]:
+        if self._triple is None:
+            from backend.api.gallery import current_embed_triple
+            self._triple = current_embed_triple()
+        return self._triple
+
+    def add_frame(
+        self, frame_bgr: np.ndarray, *, frame_index: int, offset_ms: int,
+        captured_at: Optional[str], faces: list[dict],
+        preprocessing_base: Optional[dict] = None,
+    ) -> dict:
+        """Lập hàng cho 1 frame. Trả {frame_id (None nếu bỏ qua), detections}."""
+        import json
+
+        from backend.api.repositories import validation as v
+        from backend.api.storage import PREFIX_REFERENCE_CROPS, PREFIX_SEARCH_CROPS
+
+        if frame_index < 0 or offset_ms < 0:
+            raise ValueError("frame_index/offset_ms phải >= 0.")
+        height, width = frame_bgr.shape[:2]
+        accepted = []
+        for face_index, face in enumerate(faces):
+            if face["det_score"] < self.min_det_score:
+                continue
+            x1, y1, x2, y2 = face["bbox_orig"]
+            bbox = (max(0.0, min(float(x1), float(width))),
+                    max(0.0, min(float(y1), float(height))),
+                    max(0.0, min(float(x2), float(width))),
+                    max(0.0, min(float(y2), float(height))))
+            try:
+                v.check_bbox(*bbox, width, height)
+            except ValueError:
+                continue
+            if not 0.0 <= float(face["det_score"]) <= 1.0:
+                continue
+            accepted.append((face_index, face, bbox))
+        if not accepted and not self.store_frames:
+            return {"frame_id": None, "detections": []}
+
+        frame_id = str(uuid.uuid4())
+        frame_asset_id = None
+        if self.store_frames:
+            prefix = "reference/frames" if self.purpose == "reference" else "search/frames"
+            frame_asset_id, _ = self._add_asset(_encode_jpg(frame_bgr), prefix, width, height)
+        self.rows["frames"].append(
+            (frame_id, self.purpose, self.source_id, frame_asset_id,
+             int(frame_index), int(offset_ms), captured_at, int(width), int(height)))
+
+        prefix_crops = (PREFIX_REFERENCE_CROPS if self.purpose == "reference"
+                        else PREFIX_SEARCH_CROPS)
+        detections = []
+        for face_index, face, bbox in accepted:
+            checkpoint()
+            kps = face.get("kps")
+            landmarks = [[float(x), float(y)] for x, y in kps] if kps is not None else None
+            quality = face.get("quality") or {"det_score": face["det_score"]}
+            detection_id = str(uuid.uuid4())
+            self.rows["detections"].append(
+                (detection_id, self.purpose, frame_id, self.detector_name,
+                 self.detector_version, self.run_id, face_index,
+                 *bbox, float(face["det_score"]),
+                 json.dumps(landmarks) if landmarks is not None else None,
+                 face.get("track_id"), json.dumps(quality)))
+            crop_bgr = _crop_bbox(frame_bgr, bbox)
+            ch, cw = crop_bgr.shape[:2]
+            crop_asset_id, crop_key = self._add_asset(_encode_jpg(crop_bgr), prefix_crops, cw, ch)
+            crop_id = str(uuid.uuid4())
+            preproc = dict(preprocessing_base or {})
+            preproc.setdefault("crop_method", "bbox_from_observation")
+            self.rows["crops"].append(
+                (crop_id, self.purpose, detection_id, crop_asset_id, "bbox",
+                 json.dumps(preproc), json.dumps({"bbox_original": list(bbox)})))
+            embedding = face.get("embedding")
+            if embedding is not None:
+                values = [float(x) for x in embedding]
+                try:
+                    v.check_vector(values, len(values), True)
+                except ValueError as exc:
+                    logger.debug("bỏ qua embedding crop %s: %s", crop_id, exc)
+                else:
+                    m, mv, pv = self._embed_triple()
+                    emb_id = str(uuid.uuid4())
+                    self.rows["embeddings"].append(
+                        (emb_id, crop_id, m, mv, pv, len(values), values, True))
+                    self.events.append(
+                        {"entity": "embedding", "entity_id": emb_id, "op": "upsert",
+                         "triple": (m, mv, pv), "payload": {"crop_id": crop_id}})
+            detections.append({
+                "detection_id": detection_id, "crop_id": crop_id,
+                "crop_key": crop_key, "bbox": list(bbox),
+                "det_score": face["det_score"], "embedding": embedding,
+            })
+        return {"frame_id": frame_id, "detections": detections}
+
+    def flush(self, conn) -> dict[str, int]:
+        """Chờ upload, ghi mọi hàng (chưa commit — caller commit transaction)."""
+        from backend.api import repositories as repo
+        from backend.api.gallery import emit_outbox_many
+
+        try:
+            for _, future in self._uploads:
+                future.result()
+            counts = repo.insert_observation_batch(conn, self.rows)
+            # P3: outbox cùng transaction (savepoint: thiếu bảng không hỏng lô).
+            emit_outbox_many(conn, self.events)
+        except BaseException:
+            self.discard()
+            raise
+        self._executor.shutdown(wait=False)
+        return counts
+
+    def discard(self) -> None:
+        """Hủy upload chưa chạy, chờ cái đang chạy, xóa mọi file của lô."""
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        if self._uploads:
+            self.storage.delete_many_quiet(self.keys)
+
+
 def persist_observation_frame(
     conn, storage, *, source_id: str, purpose: str,
     frame_bgr: np.ndarray, frame_index: int, offset_ms: int,
@@ -416,120 +598,20 @@ def persist_observation_frame(
     Trả {frame_id, detections:[{detection_id, crop_id, crop_key, embedding...}]}.
     Mọi crop đạt ngưỡng thu nhận đều được lưu TRƯỚC khi lọc top matches.
     """
-    import uuid as _uuid
-
-    from backend.api import repositories as repo
-    from backend.api.storage import (
-        PREFIX_REFERENCE_CROPS,
-        PREFIX_SEARCH_CROPS,
-        build_key,
-        sha256_bytes,
-    )
-
-    height, width = frame_bgr.shape[:2]
-    data = _encode_jpg(frame_bgr)
-    frame_id = str(_uuid.uuid4())
-    frame_asset_id = str(_uuid.uuid4())
-    prefix_frames = (
-        "reference/frames" if purpose == "reference" else "search/frames"
-    )
-    prefix_crops = PREFIX_REFERENCE_CROPS if purpose == "reference" else PREFIX_SEARCH_CROPS
-    frame_key = build_key(prefix_frames, frame_asset_id, "image/jpeg")
-    storage.put_bytes(data, frame_key, mime_type="image/jpeg")
-    stored_keys = [frame_key]
+    batch = ObservationBatch(
+        storage, source_id=source_id, purpose=purpose,
+        detector_name=detector_name, detector_version=detector_version,
+        run_id=run_id, min_det_score=min_det_score)
     try:
-        repo.create_asset(
-            conn, storage_key=frame_key, media_type="image",
-            mime_type="image/jpeg", sha256=sha256_bytes(data),
-            byte_size=len(data), width=int(width), height=int(height),
-            role="frame", asset_id=frame_asset_id,
-        )
-        repo.create_frame(
-            conn, purpose=purpose, source_id=source_id, asset_id=frame_asset_id,
-            frame_index=int(frame_index), offset_ms=int(offset_ms),
-            captured_at=captured_at, frame_id=frame_id,
-        )
-        detections = []
-        for face_index, face in enumerate(faces):
-            checkpoint()
-            if face["det_score"] < min_det_score:
-                continue
-            x1, y1, x2, y2 = face["bbox_orig"]
-            x1c = max(0.0, min(float(x1), float(width)))
-            y1c = max(0.0, min(float(y1), float(height)))
-            x2c = max(0.0, min(float(x2), float(width)))
-            y2c = max(0.0, min(float(y2), float(height)))
-            if x2c <= x1c or y2c <= y1c:
-                continue
-            kps = face.get("kps")
-            landmarks = (
-                [[float(x), float(y)] for x, y in kps] if kps is not None else None
-            )
-            detection_id = repo.create_detection(
-                conn, purpose=purpose, frame_id=frame_id,
-                detector_name=detector_name, detector_version=detector_version,
-                run_id=run_id, face_index=face_index,
-                bbox=(x1c, y1c, x2c, y2c), confidence=face["det_score"],
-                frame_width=int(width), frame_height=int(height),
-                landmarks=landmarks, track_id=face.get("track_id"),
-                quality=face.get("quality") or {"det_score": face["det_score"]},
-            )
-            crop_bgr = _crop_bbox(frame_bgr, (x1c, y1c, x2c, y2c))
-            crop_data = _encode_jpg(crop_bgr)
-            ch, cw = crop_bgr.shape[:2]
-            crop_id = str(_uuid.uuid4())
-            crop_asset_id = str(_uuid.uuid4())
-            crop_key = build_key(prefix_crops, crop_asset_id, "image/jpeg")
-            storage.put_bytes(crop_data, crop_key, mime_type="image/jpeg")
-            stored_keys.append(crop_key)
-            repo.create_asset(
-                conn, storage_key=crop_key, media_type="image",
-                mime_type="image/jpeg", sha256=sha256_bytes(crop_data),
-                byte_size=len(crop_data), width=int(cw), height=int(ch),
-                role="crop", asset_id=crop_asset_id,
-            )
-            preproc = dict(preprocessing_base or {})
-            preproc.setdefault("crop_method", "bbox_from_observation")
-            repo.create_crop(
-                conn, purpose=purpose, detection_id=detection_id,
-                asset_id=crop_asset_id, method="bbox",
-                preprocessing=preproc,
-                transform_to_source={"bbox_original": [x1c, y1c, x2c, y2c]},
-                crop_id=crop_id,
-            )
-            # T10: giữ vector quan sát (miễn phí từ detect) — idempotent.
-            embedding = face.get("embedding")
-            if embedding is not None:
-                try:
-                    from backend.api.gallery import current_embed_triple, emit_outbox
-                    m, mv, pv = current_embed_triple()
-                    emb_id = repo.create_embedding(
-                        conn, model_name=m, model_version=mv,
-                        preprocessing_version=pv, dimensions=len(embedding),
-                        values=[float(v) for v in embedding],
-                        normalized=True, crop_id=crop_id,
-                    )
-                    # P3: commit vector + metadata + outbox cùng transaction.
-                    emit_outbox(conn, entity="embedding", entity_id=emb_id,
-                                op="upsert", triple=(m, mv, pv),
-                                payload={"crop_id": crop_id})
-                except Exception as exc:
-                    logger.debug("bỏ qua embedding crop %s: %s", crop_id, exc)
-            detections.append(
-                {
-                    "detection_id": detection_id,
-                    "crop_id": crop_id,
-                    "crop_key": crop_key,
-                    "bbox": [x1c, y1c, x2c, y2c],
-                    "det_score": face["det_score"],
-                    "embedding": face.get("embedding"),
-                }
-            )
-    except Exception:
-        for key in stored_keys:
-            storage.delete_quiet(key)
+        frame = batch.add_frame(
+            frame_bgr, frame_index=frame_index, offset_ms=offset_ms,
+            captured_at=captured_at, faces=faces,
+            preprocessing_base=preprocessing_base)
+    except BaseException:
+        batch.discard()
         raise
-    return {"frame_id": frame_id, "detections": detections}
+    batch.flush(conn)
+    return frame
 
 
 def ingest_image_bytes(
@@ -631,9 +713,14 @@ def _probe_video_dims(video_bytes: bytes, ext: str) -> tuple[int, int]:
 
 
 def persist_video_source(
-    *, video_bytes: bytes, ext: str, mime_type: str,
+    *, video_bytes: bytes, ext: str, mime_type: str, crop_only: bool = False,
 ) -> Optional[dict]:
-    """Lưu video gốc + source search/video. Trả {source_id, video_key} hoặc None."""
+    """Tạo source search/video. Trả {source_id, video_key, storage_policy} hoặc None.
+
+    crop_only=True (đối soát video): không tải video gốc lên storage — chỉ crop
+    mặt được lưu sau đó. DB chưa có migration 009 (video bắt buộc có asset gốc)
+    → tự lùi về lưu đầy đủ như cũ.
+    """
     from backend.api import repositories as repo
     from backend.api.database import get_pool
     from backend.api.persistence import db_ping
@@ -647,11 +734,26 @@ def persist_video_source(
     if not db_ping():
         return None
     try:
+        width, height = _probe_video_dims(video_bytes, ext)
+        if crop_only:
+            source_id = str(uuid.uuid4())
+            try:
+                with get_pool().connection() as conn:
+                    repo.create_source(
+                        conn, purpose="search", kind="video",
+                        source_id=source_id, storage_policy="crop_only",
+                    )
+                return {"source_id": source_id, "asset_id": None,
+                        "video_key": None, "storage_policy": "crop_only",
+                        "width": width, "height": height}
+            except Exception as exc:
+                logger.warning(
+                    "source video crop-only bị từ chối (%s) — lưu video gốc như cũ; "
+                    "chạy database/migrate.py migrate để áp dụng 009.", exc)
         storage = get_storage()
         source_id = str(uuid.uuid4())
         asset_id = str(uuid.uuid4())
         key = build_key(PREFIX_SEARCH_ORIGINALS, asset_id, mime_type)
-        width, height = _probe_video_dims(video_bytes, ext)
         storage.put_bytes(video_bytes, key, mime_type=mime_type)
         try:
             with get_pool().connection() as conn:
@@ -661,19 +763,15 @@ def persist_video_source(
                     byte_size=len(video_bytes), width=width, height=height,
                     role="original_video", asset_id=asset_id,
                 )
-        except Exception:
-            storage.delete_quiet(key)
-            raise
-        with get_pool().connection() as conn:
-            try:
                 repo.create_source(
                     conn, purpose="search", kind="video",
                     original_asset_id=asset_id, source_id=source_id,
                 )
-            except Exception:
-                storage.delete_quiet(key)
-                raise
-        return {"source_id": source_id, "asset_id": asset_id, "video_key": key}
+        except Exception:
+            storage.delete_quiet(key)
+            raise
+        return {"source_id": source_id, "asset_id": asset_id, "video_key": key,
+                "storage_policy": "full", "width": width, "height": height}
     except Exception as exc:
         logger.warning("persist_video_source bỏ qua: %s: %s", type(exc).__name__, exc)
         return None
@@ -684,18 +782,25 @@ def ingest_sampled_frames(
     preprocess_on: bool, run_id: str,
     cancel: Optional[threading.Event] = None,
     on_progress=None,
+    store_frames: bool = True,
 ) -> dict:
-    """Nạp các frame đã sample vào source (detections + crops + conditions)."""
-    from backend.api import repositories as repo
+    """Nạp các frame đã sample vào source (detections + crops + conditions).
+
+    Detect tuần tự (GPU) trong khi crop được tải lên song song; toàn bộ hàng DB
+    của lô ghi trong một transaction ở cuối. store_frames=False: chỉ crop mặt.
+    """
     from backend.api.database import get_pool
     from backend.api.storage import get_storage
 
     storage = get_storage()
     det_version = getattr(embedder, "model_name", "buffalo_l")
     cond_counter: Counter = Counter()
-    faces_found = 0
     crop_records: list[dict] = []
-    with get_pool().connection() as conn:
+    batch = ObservationBatch(
+        storage, source_id=source_id, purpose="search",
+        detector_name="insightface", detector_version=det_version,
+        run_id=run_id, store_frames=store_frames)
+    try:
         for item in frames:
             checkpoint()
             if cancel is not None and cancel.is_set():
@@ -705,30 +810,32 @@ def ingest_sampled_frames(
             )
             for cond in conditions:
                 cond_counter[cond] += 1
-            frame = persist_observation_frame(
-                conn, storage, source_id=source_id, purpose="search",
-                frame_bgr=original, frame_index=item["frame_index"],
+            frame = batch.add_frame(
+                original, frame_index=item["frame_index"],
                 offset_ms=int(item["timestamp_sec"] * 1000),
                 captured_at=None, faces=faces,
-                detector_name="insightface", detector_version=det_version,
-                run_id=run_id,
                 preprocessing_base={"source": "search_video_ingest",
                                     "conditions": conditions},
             )
-            faces_found += len(frame["detections"])
             for det in frame["detections"]:
-                crop_records.append(
-                    {
-                        **det,
-                        "frame_index": item["frame_index"],
-                        "timestamp_sec": item["timestamp_sec"],
-                        "url": storage.get_access_url(det["crop_key"]),
-                    }
-                )
+                crop_records.append({
+                    **det,
+                    "frame_index": item["frame_index"],
+                    "timestamp_sec": item["timestamp_sec"],
+                })
             if on_progress is not None:
                 on_progress(len(crop_records))
+        with get_pool().connection() as conn:
+            batch.flush(conn)
+    except BaseException:
+        batch.discard()
+        raise
+    # Ký URL cả lô sau khi ghi (Supabase: 1 request thay vì 1/crop).
+    urls = storage.get_access_urls([r["crop_key"] for r in crop_records])
+    for record in crop_records:
+        record["url"] = urls[record["crop_key"]]
     return {
-        "faces_found": faces_found,
+        "faces_found": len(crop_records),
         "crops": crop_records,
         "conditions": dict(cond_counter),
     }

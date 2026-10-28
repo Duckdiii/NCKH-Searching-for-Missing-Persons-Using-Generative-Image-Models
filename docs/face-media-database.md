@@ -4,7 +4,8 @@ Schema PostgreSQL: `database/001_face_media.sql` (9 bảng, 2 view, 12 FK) +
 migration `002` (idempotency), `003` (ingestion/search runs), `004` (sessions),
 `005` (camera crop-only: frames.asset_id nullable, sources.storage_policy,
 tracklets), `006` (global identities/topology/assignments/exemplars),
-`007` (outbox/index snapshots/tombstones), `008` (retention policies/ledger/jobs).
+`007` (outbox/index snapshots/tombstones), `008` (retention policies/ledger/jobs),
+`009` (search/video `crop_only` được phép không có video gốc).
 Chạy bằng `python database/migrate.py` (status | baseline | migrate); không sửa
 file migration đã apply. Chi tiết kiến trúc đa camera:
 `docs/kien-truc-da-camera-tiet-kiem-bo-nho.md`.
@@ -77,6 +78,9 @@ mẫu ID (chỉ làm query).
   crop → job → ảnh tạo sinh. Giữ từng bản crop khi thay đổi restore/align.
 - Search ảnh: lưu ảnh → nguồn search/image → frame ảnh tĩnh → detection → crop.
 - Search video: lưu video → nguồn search/video → frame được chọn → detection → crop.
+- Đối soát video (crop-only, từ 009): nguồn search/video `storage_policy='crop_only'`,
+  `original_asset_id` NULL. Không tải video gốc/frame gốc; frame có mặt thành hàng
+  metadata-only, frame không có mặt bỏ qua. DB chưa áp 009 → tự lùi về lưu đầy đủ.
 - Search camera (crop-only, P0): một nguồn search/camera (`storage_policy='crop_only'`)
   cho mỗi phiên thu. KHÔNG ghi file frame/video toàn khung — frame là metadata-only
   (`asset_id` NULL + kích thước nguồn + timestamp provenance); chỉ lưu 1–3 crop
@@ -89,6 +93,12 @@ video có FPS biến đổi. Camera ghi thêm captured_at theo UTC. Bbox là t�
 frame gốc trước xử lý và ghi cấu hình tiền xử lý vào crop; luồng camera crop-only
 không lưu frame (xem mục Search camera ở trên). Không ghi đè dữ liệu quan sát gốc.
 Lưu crop hợp lệ trước khi lọc top matches để giữ dữ liệu gallery đầy đủ.
+
+Ghi theo lô (`ObservationBatch` trong `backend/api/ingest.py`): JPEG được tải lên
+song song (`INGEST_UPLOAD_WORKERS`, mặc định 8) ngay khi detect xong từng frame;
+cuối video, assets → frames → detections → crops → embeddings ghi bằng một
+`executemany` mỗi bảng trong một transaction (outbox trong savepoint riêng), URL
+crop ký một request. Lỗi upload/DB → rollback và xóa các file đã tải.
 
 ## Lưu file
 

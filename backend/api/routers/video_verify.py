@@ -17,6 +17,7 @@ import os
 import tempfile
 import uuid
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import cv2
@@ -30,6 +31,7 @@ from backend.api.ingest import (
     MAX_FRAMES,
     MIN_DET_SCORE,
     TOP_KEEP,
+    UPLOAD_WORKERS,
     _crop_bbox,
     _downscale_for_detect,
     cosine_sim,
@@ -217,13 +219,21 @@ def _load_source_records(source_id: str, embedder) -> tuple[list[dict], list[str
                 raise HTTPException(status_code=404, detail="Không tìm thấy nguồn search.")
         items, _ = repo.list_source_crops(conn, source_id=source_id, limit=500, offset=0)
     storage = get_storage()
-    records, crop_ids = [], []
-    for item in items:
-        checkpoint()
+
+    def _read(key):
         try:
-            with storage.open(item["crop_key"]) as handle:
-                data = handle.read()
+            with storage.open(key) as handle:
+                return handle.read()
         except FileNotFoundError:
+            return None
+
+    # Storage mạng: tải song song thay vì chờ RTT từng crop.
+    with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as pool:
+        blobs = list(pool.map(_read, [item["crop_key"] for item in items]))
+    records, crop_ids = [], []
+    for item, data in zip(items, blobs):
+        checkpoint()
+        if data is None:
             continue
         fd, tmp = tempfile.mkstemp(suffix=".jpg")
         try:
@@ -239,12 +249,15 @@ def _load_source_records(source_id: str, embedder) -> tuple[list[dict], list[str
                 pass
         records.append({
             "crop_id": item["crop_id"],
-            "url": storage.get_access_url(item["crop_key"]),
+            "crop_key": item["crop_key"],
             "frame_index": item["frame_index"],
             "timestamp_sec": item["offset_ms"] / 1000.0,
             "bbox": item["bbox"], "det_score": item["det_score"],
             "embedding": embedding})
         crop_ids.append(item["crop_id"])
+    urls = storage.get_access_urls([r["crop_key"] for r in records])
+    for record in records:
+        record["url"] = urls[record["crop_key"]]
     return records, crop_ids
 
 
@@ -311,7 +324,9 @@ def _verify_persisted(
         if len(video_bytes) > MAX_VIDEO_BYTES:
             raise HTTPException(status_code=400, detail="Video vượt quá 200MB.")
         mime = (file.content_type or "").split(";")[0].strip().lower() or "video/mp4"
-        saved = persist_video_source(video_bytes=video_bytes, ext=ext, mime_type=mime)
+        # Chỉ lưu crop mặt: không tải video gốc/frame gốc lên storage.
+        saved = persist_video_source(video_bytes=video_bytes, ext=ext, mime_type=mime,
+                                     crop_only=True)
         if saved is None:
             raise HTTPException(status_code=500, detail="Không lưu được video vào face_media.")
         source_id = saved["source_id"]
@@ -330,7 +345,8 @@ def _verify_persisted(
             try:
                 ingested = ingest_sampled_frames(
                     source_id=source_id, frames=frames, embedder=embedder,
-                    preprocess_on=preprocess_on, run_id=run_id)
+                    preprocess_on=preprocess_on, run_id=run_id,
+                    store_frames=saved.get("storage_policy") != "crop_only")
                 ingest_status = "done"
             except TaskCancelled:
                 with get_pool().connection() as conn:

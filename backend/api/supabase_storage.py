@@ -99,6 +99,37 @@ class SupabaseMediaStorage(MediaStorage):
         signed = result['signedURL']
         return self.url + '/storage/v1' + signed if signed.startswith('/') else signed
 
+    def get_access_urls(self, keys):
+        # Một request ký cả lô (POST object/sign/{bucket}); key lỗi/legacy ký riêng.
+        keys = list(dict.fromkeys(keys))
+        urls = {}
+        for start in range(0, len(keys), 200):
+            part = keys[start:start + 200]
+            try:
+                rows = self._request('POST', 'object/sign/' + quote(self.bucket, safe=''),
+                                     json={'expiresIn': 3600,
+                                           'paths': [validate_storage_key(k) for k in part]}).json()
+            except (IOError, FileNotFoundError):
+                rows = []
+            for row in rows if isinstance(rows, list) else []:
+                signed = row.get('signedURL') if isinstance(row, dict) else None
+                if signed and not row.get('error') and row.get('path') in part:
+                    urls[row['path']] = (self.url + '/storage/v1' + signed
+                                         if signed.startswith('/') else signed)
+        for key in keys:
+            if key not in urls:
+                urls[key] = self.get_access_url(key)
+        return urls
+
+    def delete_many_quiet(self, keys):
+        clean = [validate_storage_key(k) for k in dict.fromkeys(keys)]
+        for start in range(0, len(clean), 200):
+            try:
+                self._request('DELETE', 'object/' + quote(self.bucket, safe=''),
+                              json={'prefixes': clean[start:start + 200]})
+            except Exception:
+                pass
+
     def delete(self, key):
         # Delete only the remote object; do not delete legacy originals implicitly.
         if not self._exists(key):

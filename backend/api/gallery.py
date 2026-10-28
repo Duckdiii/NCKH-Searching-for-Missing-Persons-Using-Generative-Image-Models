@@ -659,6 +659,39 @@ def emit_outbox(conn, *, entity: str, entity_id: str, op: str,
         return False
 
 
+def emit_outbox_many(conn, events: list[dict]) -> bool:
+    """Như emit_outbox cho cả lô (1 executemany) trong savepoint riêng.
+
+    Lỗi (thiếu bảng outbox) chỉ hủy savepoint, không làm hỏng transaction
+    vector/metadata bên ngoài. events: {entity, entity_id, op, triple, payload}.
+    """
+    if not events:
+        return True
+    import json as _json
+    rows = [
+        (str(uuid.uuid4()), e["entity"], e["entity_id"], e["op"],
+         *(e.get("triple") or ("", "", "")), _json.dumps(e.get("payload") or {}))
+        for e in events
+    ]
+    try:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO face_media.outbox_events
+                        (event_id, entity, entity_id, op, model_name, model_version,
+                         preprocessing_version, payload)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    ON CONFLICT (event_id) DO NOTHING
+                    """,
+                    rows,
+                )
+        return True
+    except Exception as exc:
+        logger.debug("bỏ qua emit_outbox_many (%d sự kiện): %s", len(rows), exc)
+        return False
+
+
 def claim_outbox(conn, limit: int = 200) -> list[dict]:
     """Lấy event pending (một writer/shard gọi; best-effort)."""
     try:
