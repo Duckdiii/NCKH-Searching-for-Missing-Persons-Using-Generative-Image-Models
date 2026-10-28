@@ -38,6 +38,8 @@ interface SearchState {
   sessionHistory: JobHistoryItem[];
   isHistoricalView: boolean;
   currentWizardStep: 'restore' | 'generate' | 'results';
+  // Tab chính: tìm kiếm/sinh ảnh hoặc 8 camera phát lại video (chỉ mở khi đã có ảnh tạo sinh).
+  mainView: 'search' | 'cameras';
 
   // Session state
   sessionId: string | null;
@@ -81,6 +83,7 @@ interface SearchState {
   toggleSidebar: () => void;
   setSidebarCollapsed: (val: boolean) => void;
   setCurrentWizardStep: (step: 'restore' | 'generate' | 'results') => void;
+  setMainView: (view: 'search' | 'cameras') => void;
   addHistoryItem: (item: JobHistoryItem) => void;
   loadHistoricalJob: (item: JobHistoryItem) => void;
   removeSessionHistory: (sessionId: string) => void;
@@ -119,6 +122,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   sessionHistory: loadInitialHistory(),
   isHistoricalView: false,
   currentWizardStep: 'restore',
+  mainView: 'search',
 
   sessionId: null,
   uploadedImageUrl: null,
@@ -164,6 +168,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
   setSidebarCollapsed: (val) => set({ isSidebarCollapsed: val }),
   setCurrentWizardStep: (step) => set({ currentWizardStep: step }),
+  setMainView: (view) => set({ mainView: view }),
 
   addHistoryItem: (item) => {
     const existing = get().sessionHistory;
@@ -218,6 +223,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       jobError: null,
       isHistoricalView: false,
       currentWizardStep: 'restore',
+      mainView: 'search',
     });
   },
 

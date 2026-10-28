@@ -16,7 +16,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from contextlib import asynccontextmanager
 
 from backend.api.database import close_pool, init_pool
-from backend.api.routers import cameras, health, identities, jobs, ops, search_runs, search_sources, session, video_verify
+from backend.api.routers import cameras, health, identities, jobs, ops, replay, search_runs, search_sources, session, video_verify
 
 
 @asynccontextmanager
@@ -122,6 +122,7 @@ app.include_router(cameras.router)
 app.include_router(search_runs.router)
 app.include_router(identities.router)
 app.include_router(ops.router)
+app.include_router(replay.router)
 
 
 def get_free_port() -> int:

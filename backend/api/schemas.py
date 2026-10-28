@@ -323,6 +323,9 @@ class CaptureSessionStatus(BaseModel):
     rejected_gate: int = 0
     rejected_low_quality: int = 0
     optimizer: Optional[dict] = None
+    replay: Optional[dict] = None
+    tracks_closed: int = 0
+    crops_persisted: int = 0
 
 
 # ---------------- P2: identities ----------------

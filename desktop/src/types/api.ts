@@ -205,3 +205,72 @@ export interface SearchRunDetail {
   created_at: string;
   results: SearchResultItem[];
 }
+
+// ---------------- 8 camera phát lại video (backend/api/routers/replay.py) ----------------
+
+export interface ReplayStartResponse {
+  slot: number;
+  camera_id: string;
+  source_id: string;
+  run_id: string;
+  file_name?: string | null;
+  bytes: number;
+  sample_fps: number;
+  max_candidates: number;
+  min_quality: number;
+  start_offset_sec: number;
+}
+
+export interface ReplayProgress {
+  position_sec: number;
+  duration_sec?: number | null;
+  progress?: number | null;
+  finished: boolean;
+  offset_sec: number;
+  truncated: boolean;
+}
+
+export interface ReplayStatus {
+  source_id: string;
+  camera_id: string;
+  status: string;
+  frames_sampled: number;
+  faces_found: number;
+  error_message?: string | null;
+  tracks_closed: number;
+  crops_persisted: number;
+  rejected_gate: number;
+  rejected_low_quality: number;
+  replay?: ReplayProgress | null;
+}
+
+export interface ReplayMatch extends VideoFaceMatch {
+  accepted: boolean;
+  camera_time_sec: number;
+}
+
+export interface ReplayCameraResult {
+  slot: number;
+  source_id: string;
+  search_run_id?: string | null;
+  crops: number;
+  best_match?: ReplayMatch | null;
+  matches: ReplayMatch[];
+  accepted: number;
+  tracks_closed?: number | null;
+  crops_persisted?: number | null;
+}
+
+export interface ReplayTimelineItem extends ReplayMatch {
+  slot: number;
+}
+
+export interface ReplayMatchResponse {
+  job_id: string;
+  threshold: number;
+  reference_ages: number[];
+  cameras: ReplayCameraResult[];
+  timeline: ReplayTimelineItem[];
+  found_on_cameras: number[];
+}
+

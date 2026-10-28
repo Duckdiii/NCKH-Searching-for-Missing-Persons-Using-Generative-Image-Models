@@ -153,8 +153,80 @@ def _adapt_interval(session: dict, window: int = 30) -> float:
     return scale
 
 
+def _replay_timestamp(session: dict, video_sec: float) -> str:
+    """Giờ "camera" của một khung phát lại = mốc phiên + lệch camera + vị trí video."""
+    rp = session["replay"]
+    return datetime.fromtimestamp(
+        rp["base_epoch"] + rp["offset_sec"] + video_sec, tz=timezone.utc).isoformat()
+
+
+def _producer_replay(session: dict) -> None:
+    """Phát lại file video thay camera: lấy mẫu theo THỜI GIAN VIDEO, không bỏ khung.
+
+    Khác luồng trực tiếp: không drain bộ đệm, không giữ nhịp đồng hồ thật (xử lý
+    nhanh nhất có thể), chặn khi queue đầy thay vì bỏ frame cũ, hết file là xong
+    (không reconnect). Kết quả tái lập được giữa các lần chạy.
+    """
+    q: queue.Queue = session["queue"]
+    cancel: threading.Event = session["cancel"]
+    rp = session["replay"]
+    cap = None
+    try:
+        cap = cv2.VideoCapture(rp["path"])
+        if not cap.isOpened():
+            raise ConnectionError("Không mở được file video phát lại.")
+        fps_v = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        if not 1.0 <= fps_v <= 240.0:
+            fps_v = 25.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        rp.update(video_fps=fps_v, frames_total=total,
+                  duration_sec=round(total / fps_v, 2) if total else None)
+        step = max(1, int(round(fps_v / max(float(session["sample_fps"]), 0.01))))
+        idx = -1
+        while not cancel.is_set():
+            if session["frame_count"] >= session["max_frames"]:
+                session["replay_truncated"] = True
+                break
+            ok = cap.grab()
+            if not ok:
+                break                                   # hết video
+            idx += 1
+            if idx % step:
+                continue
+            ok, frame = cap.retrieve()
+            if not ok or frame is None:
+                continue
+            video_sec = idx / fps_v
+            rp["position_sec"] = round(video_sec, 2)
+            session["frame_count"] += 1
+            item = {"frame_index": session["frame_count"] - 1,
+                    "captured_at": _replay_timestamp(session, video_sec),
+                    "received_monotonic": time.monotonic(),
+                    "video_time_sec": video_sec,
+                    "frame_bgr": frame, "bytes": _frame_bytes(frame)}
+            while not cancel.is_set():
+                try:
+                    q.put(item, timeout=0.5)            # chặn: phát lại không bỏ khung
+                    session["queue_bytes"] = int(session.get("queue_bytes", 0)) + item["bytes"]
+                    break
+                except queue.Full:
+                    continue
+        rp["finished"] = True
+    except Exception as exc:
+        session["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        try:
+            if cap is not None:
+                cap.release()
+        except Exception:
+            pass
+        session["producer_done"] = True
+
+
 def _producer(session: dict) -> None:
     """Đọc/drain stream liên tục, chọn frame mới nhất, đo độ trễ."""
+    if session.get("replay"):
+        return _producer_replay(session)
     q: queue.Queue = session["queue"]
     cancel: threading.Event = session["cancel"]
     base_interval = 1.0 / max(float(session["sample_fps"]), 0.01)
@@ -367,6 +439,7 @@ def _persist_ready_tracklets(session: dict, tracks: list, *, force_note: str = "
                 "blur": float(c.blur), "exposure": float(c.exposure),
                 "frontal": float(c.frontal), "face_area": float(c.face_area),
                 "embedding": c.embedding, "kps": None,
+                "observed_at": float(c.observed_at),
                 "selection_rank": rank, "selection_score": float(c.score),
                 "consistency": float(c.consistency), "quality_detail": c.quality_detail,
             })
@@ -381,8 +454,12 @@ def _persist_ready_tracklets(session: dict, tracks: list, *, force_note: str = "
                     camera_id=session["camera_id"],
                     track_local_id=tr.local_id,
                     frame_index=session.get("persisted_frames", 0),
-                    offset_ms=0,
-                    captured_at=_utcnow_iso(), received_at=_utcnow_iso(),
+                    # Phát lại: vị trí crop tốt nhất trong video; trực tiếp: giờ host.
+                    offset_ms=(int(best["observed_at"] * 1000)
+                               if session.get("replay") else 0),
+                    captured_at=(_replay_timestamp(session, best["observed_at"])
+                                 if session.get("replay") else _utcnow_iso()),
+                    received_at=_utcnow_iso(),
                     source_timestamp=None,
                     timestamp_uncertainty_ms=gap_ms,
                     frame_width=int(session.get("last_width", 1280)),
@@ -539,6 +616,10 @@ def _consumer(session: dict) -> None:
             for cond in conditions:
                 session.setdefault("conditions", {}).setdefault(cond, 0)
                 session["conditions"][cond] += 1
+            if item.get("video_time_sec") is not None:
+                # Phát lại: "giờ" tracker = thời gian video → timeout/đóng tracklet
+                # đúng như camera thật, không phụ thuộc tốc độ xử lý của máy.
+                tracker.set_now(float(item["video_time_sec"]))
             tracker.update(item["frame_bgr"], faces)
             # Giải phóng frame RAM ngay sau inference/crop (P0): xóa tham chiếu.
             try:
@@ -582,6 +663,8 @@ def start_capture(
     sampling_plan: Optional[dict] = None,
     max_candidates: int = MAX_CANDIDATES_PER_TRACKLET, min_quality: float = 0.0,
     config_source: str = "manual",
+    replay_path: Optional[str] = None, replay_offset_sec: float = 0.0,
+    replay_base_epoch: Optional[float] = None,
 ) -> dict:
     """Mở phiên capture crop-only mới. Trả {source_id, run_id, camera_id}.
 
@@ -594,7 +677,9 @@ def start_capture(
 
     with get_pool().connection() as conn:
         camera = repo.get_camera(conn, camera_id)
-    target = resolve_camera_target(
+    # Phát lại file video (8 camera thay thế): target là file do server lưu, không
+    # đọc secret camera.
+    target = replay_path if replay_path else resolve_camera_target(
         _camera_secret_ref(camera_id))
     embedder = get_ingest_embedder()
     source_id = str(uuid.uuid4())
@@ -652,6 +737,11 @@ def start_capture(
         "tracker_timeout_sec": (sampling_plan or {}).get("tracker_timeout_sec"),
         "max_candidates": int(max_candidates), "min_quality": float(min_quality),
         "config_source": config_source,
+        "replay": ({"path": replay_path, "offset_sec": float(replay_offset_sec),
+                    "base_epoch": float(replay_base_epoch if replay_base_epoch is not None
+                                        else time.time()),
+                    "position_sec": 0.0, "duration_sec": None, "finished": False}
+                   if replay_path else None),
     }
     producer = threading.Thread(target=_producer, args=(session,), daemon=True)
     consumer = threading.Thread(target=_consumer, args=(session,), daemon=True)
@@ -764,7 +854,22 @@ def _config_status(session: dict) -> dict:
         "config_source": session.get("config_source", "manual"),
         "rejected_gate": int(getattr(tracker, "rejected_gate_total", 0)),
         "rejected_low_quality": int(getattr(tracker, "rejected_low_quality_total", 0)),
+        "replay": _replay_status(session),
+        "tracks_closed": int(session.get("tracks_closed", 0)),
+        "crops_persisted": int(session.get("crops_persisted", 0)),
     }
+
+
+def _replay_status(session: dict) -> Optional[dict]:
+    rp = session.get("replay")
+    if not rp:
+        return None
+    dur = rp.get("duration_sec")
+    return {"position_sec": rp.get("position_sec", 0.0), "duration_sec": dur,
+            "progress": (min(1.0, rp.get("position_sec", 0.0) / dur) if dur else None),
+            "finished": bool(rp.get("finished")) and bool(session.get("consumer_done")),
+            "offset_sec": rp.get("offset_sec", 0.0),
+            "truncated": bool(session.get("replay_truncated"))}
 
 
 def capture_status(source_id: str) -> dict:
