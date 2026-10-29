@@ -40,7 +40,8 @@ def create_mock_session(session_id="sess_1"):
         faces=[],
         cropped_path="outputs/app_uploads/fake_crop.png",
         gender_word="man",
-        initial_age=10
+        initial_age=10,
+        photo_year=2010,
     )
     save_session(sess)
     return sess

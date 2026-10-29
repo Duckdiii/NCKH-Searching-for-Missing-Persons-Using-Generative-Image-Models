@@ -29,3 +29,11 @@ uvicorn[standard]
 pydantic
 websockets
 python-multipart
+
+# Face-media persistence (T01): Supabase Postgres qua psycopg3 + dotenv.
+# Đã cài ở .venv: psycopg 3.3.6, python-dotenv 1.2.3 — khai báo pin tương thích
+# để máy mới cài chạy được migration runner và backend/api/database.py.
+psycopg[binary]==3.3.6
+python-dotenv==1.2.3
+
+httpx  # private Supabase Storage REST client with timeouts

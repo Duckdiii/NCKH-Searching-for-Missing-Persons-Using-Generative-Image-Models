@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { api, getWsUrl } from './client';
+import { api } from './client';
+import { watchJob, stopWatchingJob } from './jobMonitor';
 import { useSearchStore } from '../store/useSearchStore';
 import {
   CheckpointHealth,
@@ -8,6 +9,9 @@ import {
   SelectFaceResponse,
   UploadResponse,
 } from '../types/api';
+
+// Request select-face đang chạy theo (phiên, khuôn mặt) — dùng chung giữa các lần render.
+const inflightSelectFace = new Map<string, Promise<SelectFaceResponse>>();
 
 export function useSearchApi() {
   const checkHealth = useCallback(async () => {
@@ -29,7 +33,10 @@ export function useSearchApi() {
     try {
       const res = await api.get<JobHistoryItem[]>('/api/jobs');
       if (Array.isArray(res.data)) {
-        res.data.forEach((item) => s.addHistoryItem(item));
+        res.data.forEach((item) => {
+          s.addHistoryItem(item);
+          if (item.status === 'running') watchJob(item.job_id);
+        });
       }
       return res.data;
     } catch (err) {
@@ -51,12 +58,27 @@ export function useSearchApi() {
   }, []);
 
   const selectFace = useCallback(async (sessionId: string, selectedIdx: number) => {
-    const s = useSearchStore.getState();
-    const res = await api.post<SelectFaceResponse>(`/api/sessions/${sessionId}/select-face`, {
-      selected_idx: selectedIdx,
-    });
-    s.setSelectedFace(selectedIdx, res.data.warnings, res.data.cropped_preview_url);
-    return res.data;
+    // select-face chạy CodeFormer (vài giây–vài chục giây). FaceSelector tự gọi lại khi
+    // ảnh load/render lại → nhiều request trùng chạy song song, quá tải CPU backend.
+    // Gọi trùng khi request trước còn chạy thì dùng lại chính request đó.
+    const key = `${sessionId}:${selectedIdx}`;
+    const pending = inflightSelectFace.get(key);
+    if (pending) return pending;
+    const run = (async () => {
+      const s = useSearchStore.getState();
+      const res = await api.post<SelectFaceResponse>(`/api/sessions/${sessionId}/select-face`, {
+        selected_idx: selectedIdx,
+      });
+      if (useSearchStore.getState().sessionId === sessionId)
+        s.setSelectedFace(selectedIdx, res.data.warnings, res.data.cropped_preview_url);
+      return res.data;
+    })();
+    inflightSelectFace.set(key, run);
+    try {
+      return await run;
+    } finally {
+      inflightSelectFace.delete(key);
+    }
   }, []);
 
   const resolveAge = useCallback(
@@ -78,10 +100,11 @@ export function useSearchApi() {
           gender_word: genderWord,
           photo_year: photoYear ?? s.photoYear,
         });
-        s.setResolvedAge(res.data.initial_age, res.data.warning_text);
+        if (useSearchStore.getState().sessionId === sessionId)
+          s.setResolvedAge(res.data.initial_age, res.data.warning_text);
         return res.data;
       } finally {
-        s.setIsEstimatingAge(false);
+        if (useSearchStore.getState().sessionId === sessionId) s.setIsEstimatingAge(false);
       }
     },
     []
@@ -98,32 +121,14 @@ export function useSearchApi() {
       }
     );
     const jobId = res.data.job_id;
-    s.startJob(jobId);
-
-    // Mở WebSocket lắng nghe tiến độ
-    const wsUrl = `${getWsUrl()}/api/jobs/${jobId}/ws`;
-    const ws = new WebSocket(wsUrl);
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.status === 'done') {
-          s.updateJobProgress('done', 'complete', data.result || data);
-          ws.close();
-        } else if (data.status === 'error') {
-          s.updateJobProgress('error', 'failed', undefined, data.error_message);
-          ws.close();
-        } else {
-          s.updateJobProgress('running', data.stage || 'running');
-        }
-      } catch (err) {
-        console.error('Error parsing WS message:', err);
-      }
-    };
-
-    ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
-    };
+    if (useSearchStore.getState().sessionId === sessionId) {
+      useSearchStore.getState().startJob(jobId);
+    } else {
+      s.addHistoryItem({ job_id: jobId, session_id: sessionId, status: 'running',
+        stage: 'specialization', timestamp: Date.now(), cropped_preview_url: s.croppedPreviewUrl,
+        initial_age: s.initialAge, photo_year: effectivePhotoYear, gender_word: s.genderWord });
+    }
+    watchJob(jobId);
 
     return jobId;
   }, []);
@@ -182,13 +187,45 @@ export function useSearchApi() {
         }
       );
       const s = useSearchStore.getState();
-      if (res.data.cropped_preview_url) {
+      if (s.sessionId === sessionId && res.data.cropped_preview_url) {
         s.setSelectedFace(s.selectedFaceIdx ?? 0, s.warnings, res.data.cropped_preview_url);
       }
       return res.data;
     },
     []
   );
+
+  const cancelJob = useCallback(async (jobId: string) => {
+    // Dừng job phía backend (worker dừng hợp tác giữa các stage, nhả GPU mutex).
+    // Kết quả cuối (error + thông báo đã hủy) về qua WebSocket như bình thường.
+    const res = await api.post<{ job_id: string; status: string }>(
+      `/api/jobs/${jobId}/cancel`
+    );
+    return res.data;
+  }, []);
+
+  const waitForSession = async (sessionId: string, deleting: boolean) => {
+    for (;;) {
+      const { data } = await api.get(`/api/sessions/${sessionId}/lifecycle`);
+      if (data.status === 'delete_error') throw new Error(data.error_message);
+      if (deleting ? data.status === 'deleted' : data.active_tasks === 0) return data;
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  };
+
+  const stopSession = useCallback(async (sessionId: string) => {
+    const { data } = await api.post(`/api/sessions/${sessionId}/stop`);
+    return data.active_tasks > 0 ? waitForSession(sessionId, false) : data;
+  }, []);
+
+  const deleteSession = useCallback(async (sessionId: string) => {
+    const res = await api.delete(`/api/sessions/${sessionId}`);
+    const data = res.status === 202 ? await waitForSession(sessionId, true) : res.data;
+    const s = useSearchStore.getState();
+    s.sessionHistory.filter(h => h.session_id === sessionId).forEach(h => stopWatchingJob(h.job_id));
+    s.removeSessionHistory(sessionId);
+    return data;
+  }, []);
 
   return {
     checkHealth,
@@ -199,5 +236,8 @@ export function useSearchApi() {
     runPipeline,
     previewRestoration,
     applyRestoration,
+    cancelJob,
+    stopSession,
+    deleteSession,
   };
 }

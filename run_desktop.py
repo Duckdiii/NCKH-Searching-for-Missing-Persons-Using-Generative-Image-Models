@@ -1,7 +1,9 @@
 """
 Script khởi động trọn gói ứng dụng Desktop từ CLI của VS Code:
 1. Khởi động Backend FastAPI (Port 8000).
-2. Đợi Backend sẵn sàng qua health check (timeout 60s, hiển thị tiến trình).
+2. Đợi Backend sẵn sàng qua health check (timeout 300s, hiển thị tiến trình).
+   Lần đầu sau khi bật máy (cold start), import torch/diffusers/ultralytics
+   có thể mất vài phút do Windows Defender + cache đĩa lạnh — KHÔNG phải treo.
 3. Khởi động Frontend và tự động mở Cửa sổ Ứng dụng độc lập (App Window - không URL bar, không tab web).
 4. Tự động dọn dẹp và tắt sạch tiến trình con khi nhấn Ctrl+C, bảo vệ VRAM GPU.
 """
@@ -42,7 +44,14 @@ def is_backend_alive() -> bool:
     return False
 
 
-def wait_for_backend(proc, timeout_sec=60) -> bool:
+def is_port_busy(port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def wait_for_backend(proc, timeout_sec=300) -> bool:
     start_t = time.time()
     while time.time() - start_t < timeout_sec:
         # Kiểm tra xem tiến trình backend có bị crash sớm không
@@ -56,6 +65,37 @@ def wait_for_backend(proc, timeout_sec=60) -> bool:
 
         elapsed = int(time.time() - start_t)
         print(f"\r  • Đang nạp mô hình & khởi động server AI... ({elapsed}s/{timeout_sec}s)", end="", flush=True)
+        time.sleep(1)
+
+    return False
+
+
+def is_frontend_alive() -> bool:
+    try:
+        with urllib.request.urlopen(APP_URL, timeout=1) as resp:
+            if resp.status == 200:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def wait_for_frontend(proc, timeout_sec=180) -> bool:
+    """Đợi Vite dev server (port 1420) phản hồi trước khi mở cửa sổ App —
+    tránh lỗi ERR_CONNECTION_REFUSED do mở Edge sớm khi Vite còn đang
+    optimize dependencies (cold start có thể mất 30-60s)."""
+    start_t = time.time()
+    while time.time() - start_t < timeout_sec:
+        if proc and proc.poll() is not None:
+            return False
+
+        if is_frontend_alive():
+            elapsed = time.time() - start_t
+            print(f"\r  ✅ Frontend Desktop đã sẵn sàng! ({elapsed:.1f}s)                ", flush=True)
+            return True
+
+        elapsed = int(time.time() - start_t)
+        print(f"\r  • Đang khởi động giao diện Vite... ({elapsed}s/{timeout_sec}s)", end="", flush=True)
         time.sleep(1)
 
     return False
@@ -95,6 +135,14 @@ def main():
     # Kiểm tra xem backend đã chạy sẵn từ trước chưa
     if is_backend_alive():
         print(f"ℹ️ Backend API server đã đang chạy sẵn trên cổng {BACKEND_PORT}.")
+    elif is_port_busy(BACKEND_PORT):
+        # Cổng bị chiếm nhưng health không 200: backend cũ (code lỗi thời / pythonw chạy ngầm)
+        # hoặc ứng dụng khác. Báo ngay thay vì đợi uvicorn bind lỗi (Errno 10048).
+        print(f"❌ Cổng {BACKEND_PORT} đang bị tiến trình khác chiếm nhưng không phải backend hoạt động bình thường.")
+        print("  • Xem tiến trình:  Get-NetTCPConnection -LocalPort "
+              f"{BACKEND_PORT} -State Listen | Select OwningProcess")
+        print("  • Tắt tiến trình:  Stop-Process -Id <PID>   (rồi chạy lại script này)")
+        sys.exit(1)
     else:
         print(f"[1/3] Đang khởi động Backend API server trên cổng {BACKEND_PORT}...")
         env = os.environ.copy()
@@ -111,11 +159,15 @@ def main():
             stderr=subprocess.STDOUT
         )
 
-        ready = wait_for_backend(backend_proc, timeout_sec=60)
+        ready = wait_for_backend(backend_proc, timeout_sec=300)
         if not ready:
             print("\n❌ Lỗi: Backend không khởi động được!")
             if backend_proc and backend_proc.poll() is not None:
                 print(f"  • Tiến trình Python thoát với mã lỗi: {backend_proc.returncode}")
+            else:
+                print("  • Backend quá 300s chưa phản hồi health check (thường do cold start")
+                print("    import torch/diffusers quá chậm, hoặc thiếu RAM/VRAM). Thử chạy tay để xem lỗi:")
+                print("      python -m backend.api.main")
             print(f"  • Chi tiết log xem tại: {BACKEND_LOG_PATH}")
             if os.path.exists(BACKEND_LOG_PATH):
                 with open(BACKEND_LOG_PATH, "r", encoding="utf-8") as f:
@@ -138,6 +190,17 @@ def main():
         )
 
         time.sleep(2)
+
+        if not wait_for_frontend(frontend_proc, timeout_sec=180):
+            print("\n❌ Lỗi: Frontend không khởi động được!")
+            if frontend_proc and frontend_proc.poll() is not None:
+                print(f"  • Tiến trình npm thoát với mã lỗi: {frontend_proc.returncode}")
+                print("  • Thử chạy tay để xem lỗi:")
+                print(f"    cd {DESKTOP_DIR}")
+                print("    npm run dev")
+            else:
+                print("  • Vite quá 180s chưa phản hồi. Thử chạy tay 'npm run dev' để xem lỗi.")
+            sys.exit(1)
 
         # 3. Mở Cửa sổ Ứng dụng
         print(f"[3/3] Đang kích hoạt Cửa sổ Ứng dụng Desktop...")

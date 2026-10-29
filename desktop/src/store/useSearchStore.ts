@@ -38,6 +38,8 @@ interface SearchState {
   sessionHistory: JobHistoryItem[];
   isHistoricalView: boolean;
   currentWizardStep: 'restore' | 'generate' | 'results';
+  // Tab chính: tìm kiếm/sinh ảnh hoặc 8 camera phát lại video (chỉ mở khi đã có ảnh tạo sinh).
+  mainView: 'search' | 'cameras' | 'tools';
 
   // Session state
   sessionId: string | null;
@@ -81,8 +83,10 @@ interface SearchState {
   toggleSidebar: () => void;
   setSidebarCollapsed: (val: boolean) => void;
   setCurrentWizardStep: (step: 'restore' | 'generate' | 'results') => void;
+  setMainView: (view: 'search' | 'cameras' | 'tools') => void;
   addHistoryItem: (item: JobHistoryItem) => void;
   loadHistoricalJob: (item: JobHistoryItem) => void;
+  removeSessionHistory: (sessionId: string) => void;
   startNewSearch: () => void;
   setUploadResult: (sessionId: string, faces: FaceBox[], imageUrl: string) => void;
   setSelectedFace: (idx: number, warnings: string[], cropUrl: string) => void;
@@ -98,7 +102,8 @@ interface SearchState {
     status: 'idle' | 'running' | 'done' | 'error',
     stage: string,
     result?: JobResult,
-    error?: string | null
+    error?: string | null,
+    targetJobId?: string
   ) => void;
   resetForNewUpload: () => void;
 }
@@ -117,6 +122,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   sessionHistory: loadInitialHistory(),
   isHistoricalView: false,
   currentWizardStep: 'restore',
+  mainView: 'search',
 
   sessionId: null,
   uploadedImageUrl: null,
@@ -162,31 +168,41 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
   setSidebarCollapsed: (val) => set({ isSidebarCollapsed: val }),
   setCurrentWizardStep: (step) => set({ currentWizardStep: step }),
+  setMainView: (view) => set({ mainView: view }),
 
   addHistoryItem: (item) => {
     const existing = get().sessionHistory;
     const filtered = existing.filter((h) => h.job_id !== item.job_id);
-    const updated = [item, ...filtered];
+    const prior = existing.find(h => h.job_id === item.job_id);
+    const updated = [{ ...prior, ...item }, ...filtered];
     saveHistoryToStorage(updated);
     set({ sessionHistory: updated });
   },
 
+  removeSessionHistory: (sessionId) => {
+    const history = get().sessionHistory.filter(h => h.session_id !== sessionId);
+    saveHistoryToStorage(history);
+    set({ sessionHistory: history });
+  },
   loadHistoricalJob: (item) => {
-    if (item.result) {
-      set({
-        jobId: item.job_id,
-        sessionId: item.session_id,
-        jobStatus: item.status,
-        jobStage: item.stage,
-        jobResult: item.result,
-        croppedPreviewUrl: item.cropped_preview_url || get().croppedPreviewUrl,
-        initialAge: item.initial_age ?? get().initialAge,
-        photoYear: item.photo_year ?? null,
-        genderWord: (item.gender_word as any) || get().genderWord,
-        isHistoricalView: true,
-        currentWizardStep: 'results',
-      });
-    }
+    set({
+      jobId: item.job_id,
+      sessionId: item.session_id,
+      jobStatus: item.status,
+      jobStage: item.stage,
+      jobResult: item.result || null,
+      jobError: item.error_message || null,
+      croppedPreviewUrl: item.cropped_preview_url || item.result?.cropped_image || null,
+      uploadedImageUrl: null,
+      faces: [], selectedFaceIdx: null, warnings: [],
+      initialAge: item.initial_age ?? null,
+      manualAge: item.initial_age ?? 10,
+      photoYear: item.photo_year ?? null,
+      genderWord: item.gender_word === 'woman' ? 'woman' : 'man',
+      ageWarningText: null, isEstimatingAge: false, galleryDir: null,
+      isHistoricalView: true,
+      currentWizardStep: item.status === 'done' ? 'results' : 'generate',
+    });
   },
 
   startNewSearch: () => {
@@ -207,6 +223,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       jobError: null,
       isHistoricalView: false,
       currentWizardStep: 'restore',
+      mainView: 'search',
     });
   },
 
@@ -266,9 +283,13 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       isHistoricalView: false,
     });
   },
-  updateJobProgress: (status, stage, result, error) => {
-    const prevStatus = get().jobStatus;
-    const jobId = get().jobId;
+  updateJobProgress: (status, stage, result, error, targetJobId) => {
+    const jobId = targetJobId ?? get().jobId;
+    const active = jobId === get().jobId;
+    const previous = get().sessionHistory.find(h => h.job_id === jobId);
+    // A deleted session must not be recreated by a late websocket/poll response.
+    if (targetJobId && !previous && !active) return;
+    const prevStatus = previous?.status ?? get().jobStatus;
     if (jobId) {
       const history = get().sessionHistory;
       const target = history.find((h) => h.job_id === jobId);
@@ -291,7 +312,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
 
     // Giai đoạn 3: Hiện Toast thông báo khi job hoàn tất lúc người dùng đang ở màn khác
     if (status === 'done' && prevStatus === 'running') {
-      const isAway = get().isHistoricalView || get().currentWizardStep !== 'results';
+      const isAway = !active || get().isHistoricalView || get().currentWizardStep !== 'results';
       if (isAway) {
         const identityName = result?.top_identity || 'Đối tượng';
         const scorePct = typeof result?.top_score === 'number'
@@ -302,16 +323,14 @@ export const useSearchStore = create<SearchState>((set, get) => ({
           identityName,
           scorePct,
           onViewResult: () => {
-            set({
-              isHistoricalView: false,
-              jobResult: result || null,
-            });
-            get().setCurrentWizardStep('results');
+            const item = get().sessionHistory.find(h => h.job_id === jobId);
+            if (item) get().loadHistoricalJob(item);
           },
         });
       }
     }
 
+    if (!active) return;
     set({
       jobStatus: status,
       jobStage: stage,

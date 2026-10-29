@@ -12,6 +12,7 @@ Từ 1 ảnh thật + Initial Age (IA, nhập tay) và model UNet đã specializ
 Tham khảo: https://github.com/MunchkinChen/FADING (null_inversion.py, p2p.py)
 """
 
+from src.utils.cancellation import checkpoint
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -70,6 +71,8 @@ class DualAttentionCapture:
                     else:
                         capture.captured_self[name] = attention_probs.detach().cpu()
 
+                if attention_probs.dtype != value.dtype:
+                    attention_probs = attention_probs.to(value.dtype)
                 hidden_states = torch.bmm(attention_probs, value)
                 hidden_states = attn.batch_to_head_dim(hidden_states)
                 hidden_states = attn.to_out[0](hidden_states)
@@ -203,17 +206,28 @@ class NullTextInverter:
         """Gọi UNet 1 lần với 1 nhánh embedding duy nhất (KHÔNG CFG), trả về tensor noise_pred."""
         return self.unet(latent, t, encoder_hidden_states=embedding).sample
 
+    def _coerce_alpha(self, alpha, ref: torch.Tensor) -> torch.Tensor:
+        """Ép alpha (CPU float32) về đúng device/dtype của latent để tránh latent bị
+        promote từ Half -> Float sau 1 bước DDIM (gây lỗi 'expected Half but found Float'
+        khi đưa lại vào UNet fp16)."""
+        if not torch.is_tensor(alpha):
+            alpha = torch.as_tensor(alpha)
+        return alpha.to(device=ref.device, dtype=ref.dtype)
+
     def _ddim_next_step(self, noise_pred: torch.Tensor, t: int, sample: torch.Tensor) -> torch.Tensor:
         """DDIM bước XUÔI (t hiện tại -> t lớn hơn), dùng trong DDIM inversion - Bước A.
         Công thức lấy đúng từ null_inversion.py (hàm next_step) của FADING gốc."""
         step = self.scheduler.config.num_train_timesteps // self.scheduler.num_inference_steps
         timestep, next_timestep = min(t - step, 999), t
-        alpha_prod_t = (
-            self.scheduler.alphas_cumprod[timestep]
-            if timestep >= 0
-            else self.scheduler.final_alpha_cumprod
+        alpha_prod_t = self._coerce_alpha(
+            (
+                self.scheduler.alphas_cumprod[timestep]
+                if timestep >= 0
+                else self.scheduler.final_alpha_cumprod
+            ),
+            sample,
         )
-        alpha_prod_t_next = self.scheduler.alphas_cumprod[next_timestep]
+        alpha_prod_t_next = self._coerce_alpha(self.scheduler.alphas_cumprod[next_timestep], sample)
         beta_prod_t = 1 - alpha_prod_t
         next_original_sample = (sample - beta_prod_t**0.5 * noise_pred) / alpha_prod_t**0.5
         next_sample_direction = (1 - alpha_prod_t_next) ** 0.5 * noise_pred
@@ -224,11 +238,14 @@ class NullTextInverter:
         Công thức lấy đúng từ null_inversion.py (hàm prev_step) của FADING gốc."""
         step = self.scheduler.config.num_train_timesteps // self.scheduler.num_inference_steps
         prev_timestep = t - step
-        alpha_prod_t = self.scheduler.alphas_cumprod[t]
-        alpha_prod_t_prev = (
-            self.scheduler.alphas_cumprod[prev_timestep]
-            if prev_timestep >= 0
-            else self.scheduler.final_alpha_cumprod
+        alpha_prod_t = self._coerce_alpha(self.scheduler.alphas_cumprod[t], sample)
+        alpha_prod_t_prev = self._coerce_alpha(
+            (
+                self.scheduler.alphas_cumprod[prev_timestep]
+                if prev_timestep >= 0
+                else self.scheduler.final_alpha_cumprod
+            ),
+            sample,
         )
         beta_prod_t = 1 - alpha_prod_t
         pred_original_sample = (sample - beta_prod_t**0.5 * noise_pred) / alpha_prod_t**0.5
@@ -243,6 +260,7 @@ class NullTextInverter:
         pivot_latents = [latent]
         timesteps = self.scheduler.timesteps
         for i in range(self.num_inference_steps):
+            checkpoint()
             t = timesteps[len(timesteps) - i - 1]
             with torch.no_grad():
                 noise_pred = self._predict_noise(latent, t, cond_embedding)
@@ -267,6 +285,7 @@ class NullTextInverter:
         timesteps = self.scheduler.timesteps
 
         for i in range(self.num_inference_steps):
+            checkpoint()
             # Giữ uncond_embeddings ở FP32 trong lúc Adam tối ưu
             uncond_embeddings = uncond_embeddings.clone().detach().float().requires_grad_(True)
             # Lịch trình LR chuẩn kaggle_3: giữ 1e-2 cho 25 bước đầu, giảm dần về sau
@@ -279,6 +298,7 @@ class NullTextInverter:
                 noise_pred_cond = self._predict_noise(latent_cur, t, cond_embedding)
 
             for _ in range(self.num_inner_steps):
+                checkpoint()
                 noise_pred_uncond = self._predict_noise(latent_cur, t, uncond_embeddings.half())
                 noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_cond - noise_pred_uncond)
                 latent_prev_rec = self._ddim_prev_step(noise_pred, t, latent_cur)

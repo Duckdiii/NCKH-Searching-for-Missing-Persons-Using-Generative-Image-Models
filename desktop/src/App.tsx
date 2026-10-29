@@ -2,15 +2,21 @@ import React, { useEffect, useState } from 'react';
 import { useSearchStore } from './store/useSearchStore';
 import { useSearchApi } from './api/useSearchApi';
 import { SearchPage } from './pages/SearchPage';
+import { CameraGridPage, hasGeneratedImages } from './pages/CameraGridPage';
+import { ToolsPage } from './pages/ToolsPage';
 import { FirstRunSetup } from './components/FirstRunSetup';
 import { Sidebar } from './components/Sidebar';
 import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { Toast } from './components/Toast';
-import { Loader2 } from 'lucide-react';
+import { Camera, Loader2, Search, Wrench } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const { checkpointReady, isCheckingHealth, currentWizardStep, toast, setToast, isDemoMode } = useSearchStore();
+  const { checkpointReady, isCheckingHealth, currentWizardStep, toast, setToast, isDemoMode, mainView, setMainView, jobResult } = useSearchStore();
+  const camerasEnabled = hasGeneratedImages(jobResult);
+  const showCameras = mainView === 'cameras' && camerasEnabled;
+  const showTools = mainView === 'tools';
+  const showSearch = !showCameras && !showTools;
   const { checkHealth, fetchJobsHistory } = useSearchApi();
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -124,7 +130,40 @@ export const App: React.FC = () => {
         )}
 
         <main className="flex-1 overflow-y-auto">
-          {!checkpointReady ? <FirstRunSetup /> : <SearchPage />}
+          {!checkpointReady ? (
+            <FirstRunSetup />
+          ) : (
+            <>
+              <nav role="tablist" className="sticky top-0 z-[5] bg-[#F5F6F8] px-4 sm:px-6 pt-3 flex gap-1 border-b border-[#E5E7EB]">
+                <button type="button" role="tab" aria-selected={showSearch} data-testid="tab-search"
+                        onClick={() => setMainView('search')}
+                        className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-lg border-b-2 -mb-px ${
+                          showSearch ? 'border-[#E8804A] text-[#111827] bg-white' : 'border-transparent text-[#6B7280] hover:text-[#111827]'}`}>
+                  <Search className="w-3.5 h-3.5" /> Tìm kiếm & sinh ảnh
+                </button>
+                <button type="button" role="tab" aria-selected={showCameras} data-testid="tab-cameras"
+                        disabled={!camerasEnabled}
+                        title={camerasEnabled ? '8 camera: tải video thay thế, chạy và đối soát với ảnh tạo sinh'
+                                              : 'Cần có ảnh tạo sinh (chạy xong pipeline FADING) trước'}
+                        onClick={() => setMainView('cameras')}
+                        className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-lg border-b-2 -mb-px disabled:opacity-40 disabled:cursor-not-allowed ${
+                          showCameras ? 'border-[#E8804A] text-[#111827] bg-white' : 'border-transparent text-[#6B7280] hover:text-[#111827]'}`}>
+                  <Camera className="w-3.5 h-3.5" /> 8 Camera (video)
+                </button>
+                <button type="button" role="tab" aria-selected={showTools} data-testid="tab-tools"
+                        title="Kế hoạch camera & tối ưu fps/K, lịch quên dữ liệu, chọn ảnh tốt nhất, kho crop"
+                        onClick={() => setMainView('tools')}
+                        className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-lg border-b-2 -mb-px ${
+                          showTools ? 'border-[#E8804A] text-[#111827] bg-white' : 'border-transparent text-[#6B7280] hover:text-[#111827]'}`}>
+                  <Wrench className="w-3.5 h-3.5" /> Công cụ
+                </button>
+              </nav>
+              {/* Giữ cả hai trang trong DOM để không mất video đã chọn khi đổi tab. */}
+              <div className={showSearch ? '' : 'hidden'}><SearchPage /></div>
+              {camerasEnabled && <div className={showCameras ? '' : 'hidden'}><CameraGridPage /></div>}
+              {showTools && <ToolsPage />}
+            </>
+          )}
         </main>
       </div>
 

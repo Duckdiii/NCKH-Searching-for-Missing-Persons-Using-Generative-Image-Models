@@ -15,6 +15,12 @@ class SessionState:
     initial_age: Optional[int] = None
     photo_year: Optional[int] = None
     file_name: str = ""
+    # T04–T05 lineage bền vững (None khi DB không sẵn sàng — luồng legacy).
+    source_id: Optional[str] = None
+    frame_id: Optional[str] = None
+    detection_ids: List[str] = dataclasses.field(default_factory=list)
+    chosen_detection_id: Optional[str] = None
+    current_crop_id: Optional[str] = None
 
 
 @dataclasses.dataclass
@@ -25,6 +31,8 @@ class JobState:
     stage: str = "pending"   # specialization, inversion, editing, search
     result: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
+    # T06: cùng UUID với bản ghi face_media.generation_jobs (None khi legacy).
+    db_job_id: Optional[str] = None
 
 
 # In-memory stores indexed by UUID string

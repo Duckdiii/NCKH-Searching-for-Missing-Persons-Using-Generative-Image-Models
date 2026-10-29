@@ -16,6 +16,7 @@ Gọi tuần tự 6 bước:
 (chính ảnh gốc) trong gallery test.
 """
 
+from src.utils.cancellation import checkpoint
 import datetime
 import os
 import sys
@@ -315,6 +316,7 @@ def run_embedding_and_search(config: dict, edited_images: dict, return_age_score
 
     search_results_per_age = {}
     for target_age, image_path in edited_images.items():
+        checkpoint()
         try:
             query_embedding = embedder.embed(image_path)
         except ValueError as e:
